@@ -3,9 +3,11 @@
 import type { AuthSession } from '@opeconca/contracts'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { PageResult, PortalApi } from './portal-api'
+import { PublicationsWorkspace } from './portal-publications'
+import { TasksWorkspace } from './portal-tasks'
 import styles from './portal-workspace.module.css'
 
-type Area = 'dashboard' | 'users' | 'clients' | 'projects' | 'reports'
+type Area = 'dashboard' | 'publications' | 'tasks' | 'users' | 'clients' | 'projects' | 'reports'
 type Permission = AuthSession['user']['permissions'][number]
 
 interface UserItem { id: string; email: string; displayName: string; status: 'ACTIVE' | 'INACTIVE'; roles: Array<{ code: string; name: string }> }
@@ -17,6 +19,8 @@ interface ReportItem { id: string; projectId: string; projectCode: string; proje
 
 const areas: Array<{ id: Area; label: string; permissions: Permission[] }> = [
   { id: 'dashboard', label: 'Resumen', permissions: [] },
+  { id: 'publications', label: 'Actualidad', permissions: ['publications.read', 'publications.create', 'publications.manage', 'publications.publish'] },
+  { id: 'tasks', label: 'Centro de trabajo', permissions: ['tasks.read'] },
   { id: 'users', label: 'Usuarios', permissions: ['users.read'] },
   { id: 'clients', label: 'Clientes', permissions: ['clients.read'] },
   { id: 'projects', label: 'Proyectos', permissions: ['projects.read'] },
@@ -76,7 +80,9 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
     }
   }, [area, session.user])
 
-  useEffect(() => { if (area !== 'dashboard') void load(area) }, [area, load])
+  useEffect(() => {
+    if (!['dashboard', 'publications', 'tasks'].includes(area)) void load(area)
+  }, [area, load])
 
   const run = async (operation: () => Promise<unknown>, success: string, reload = true) => {
     setBusy(true); setError(''); setMessage('')
@@ -129,12 +135,14 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
         <div className={styles.identity}><strong>{session.user.displayName}</strong><small>{session.user.email}</small><button disabled={busy} onClick={() => void onLogout()} type="button">Cerrar sesión</button></div>
       </aside>
       <section className={styles.content}>
-        <header className={styles.header}><div><p>Panel administrativo</p><h1>{areas.find((item) => item.id === area)?.label}</h1></div>{area !== 'dashboard' && <form className={styles.search} onSubmit={(event) => { event.preventDefault(); void load() }}><label><span>Buscar</span><input onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, código o correo" value={search} /></label><button disabled={loading} type="submit">Buscar</button><button disabled={loading} onClick={() => void load()} type="button">Actualizar</button></form>}</header>
+        <header className={styles.header}><div><p>Panel administrativo</p><h1>{areas.find((item) => item.id === area)?.label}</h1></div>{!['dashboard', 'publications', 'tasks'].includes(area) && <form className={styles.search} onSubmit={(event) => { event.preventDefault(); void load() }}><label><span>Buscar</span><input onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, código o correo" value={search} /></label><button disabled={loading} type="submit">Buscar</button><button disabled={loading} onClick={() => void load()} type="button">Actualizar</button></form>}</header>
         {message && <p className={styles.success} role="status">{message}</p>}
         {error && <p className={styles.error} role="alert">{error}</p>}
         {loading && <p className={styles.loading} role="status">Cargando información…</p>}
 
         {area === 'dashboard' && <Dashboard session={session} onOpen={setArea} />}
+        {area === 'publications' && <PublicationsWorkspace api={api} session={session} />}
+        {area === 'tasks' && <TasksWorkspace api={api} session={session} />}
         {area === 'users' && !loading && <ResourceSection title="Equipo" action={can(session.user, 'users.manage') ? <UserForm disabled={busy} onSubmit={createUser} /> : null}>{users.length ? users.map((user) => <article className={styles.card} key={user.id}><div><span className={styles.badge}>{user.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span><h2>{user.displayName}</h2><p>{user.email}</p><small>{user.roles.map((role) => role.name).join(', ') || 'Sin rol asignado'}</small></div>{can(session.user, 'users.manage') && user.id !== session.user.id && <button disabled={busy} onClick={() => void run(() => api.request(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ status: user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) }), `Usuario ${user.status === 'ACTIVE' ? 'inactivado' : 'activado'}.`)} type="button">{user.status === 'ACTIVE' ? 'Inactivar' : 'Activar'}</button>}</article>) : <Empty />}</ResourceSection>}
         {area === 'clients' && !loading && <><ResourceSection title="Clientes" action={can(session.user, 'clients.manage') ? <ClientForm disabled={busy} onSubmit={createClient} /> : null}>{clients.length ? clients.map((client) => <article className={styles.card} key={client.id}><div><span className={styles.badge}>{client.isActive ? 'Activo' : 'Inactivo'}</span><h2>{client.name}</h2><p>{client.taxId || 'Sin identificación fiscal'} · {client.contactCount ?? 0} contactos</p></div><button onClick={() => void inspectClient(client)} type="button">Ver contactos</button></article>) : <Empty />}</ResourceSection>{selectedClient && <Detail title={`Contactos · ${selectedClient.name}`} onClose={() => setSelectedClient(null)}>{contacts.map((contact) => <p key={contact.id}><strong>{contact.name}</strong> · {contact.position || 'Sin cargo'} · {contact.email || contact.phone || 'Sin contacto'}</p>)}{can(session.user, 'clients.manage') && <ContactForm disabled={busy} onSubmit={createContact} />}</Detail>}</>}
         {area === 'projects' && !loading && <><ResourceSection title="Proyectos" action={can(session.user, 'projects.manage') ? <ProjectForm clients={clients} disabled={busy} onSubmit={createProject} /> : null}>{projects.length ? projects.map((project) => <article className={styles.card} key={project.id}><div><span className={styles.badge}>{project.status}</span><h2>{project.code} · {project.name}</h2><p>{project.clientName}</p></div><button onClick={() => void inspectProject(project)} type="button">Ver equipo</button></article>) : <Empty />}</ResourceSection>{selectedProject && <Detail title={`Equipo · ${selectedProject.name}`} onClose={() => setSelectedProject(null)}>{members.map((member) => <p key={member.userId}><strong>{member.displayName}</strong> · {member.role} · {member.email}</p>)}{can(session.user, 'projects.manage') && <MemberForm disabled={busy} onSubmit={addMember} users={users} />}</Detail>}</>}

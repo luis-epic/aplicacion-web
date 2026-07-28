@@ -41,6 +41,23 @@ export class PublicationsController {
     return this.publications.feed(query, actor)
   }
 
+  @Get('review-queue')
+  @RequirePermissions('publications.publish')
+  @ApiOperation({ summary: 'Lista publicaciones en revisión o programadas para el equipo publicador' })
+  reviewQueue(@Query() query: PublicationQueryDto): Promise<PageResult<PublicationView>> {
+    return this.publications.reviewQueue(query)
+  }
+
+  @Get('mine')
+  @RequirePermissions('publications.create')
+  @ApiOperation({ summary: 'Lista las publicaciones creadas por el usuario autenticado' })
+  mine(
+    @Query() query: PublicationQueryDto,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<PageResult<PublicationView>> {
+    return this.publications.mine(query, actor)
+  }
+
   @Get()
   @RequirePermissions('publications.manage')
   @ApiOperation({ summary: 'Lista administrativa paginada y filtrada de publicaciones' })

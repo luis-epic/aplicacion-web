@@ -1,8 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { TaskPriority, TaskRecurrence, TaskStatus } from '@prisma/client'
 import { Transform, Type } from 'class-transformer'
-import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator'
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsRFC3339, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator'
 import { PageQueryDto } from '../common/page-query.dto'
+
+const Trim = () => Transform(({ value }: { value: unknown }) => (
+  typeof value === 'string' ? value.trim() : value
+))
 
 export class TaskQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ description: 'Limita el resultado a tareas creadas, asignadas o supervisadas por el usuario.' })
@@ -29,12 +33,14 @@ export class TaskQueryDto extends PageQueryDto {
 
 export class CreateTaskDto {
   @ApiProperty({ minLength: 1, maxLength: 180 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(180)
   title!: string
 
   @ApiPropertyOptional({ maxLength: 10_000 })
+  @Trim()
   @IsString()
   @MaxLength(10_000)
   @IsOptional()
@@ -66,7 +72,7 @@ export class CreateTaskDto {
   recurrence?: TaskRecurrence
 
   @ApiPropertyOptional({ format: 'date-time' })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   dueAt?: string
 
@@ -85,6 +91,7 @@ export class CreateTaskDto {
 
 export class UpdateTaskDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 180 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(180)
@@ -92,6 +99,7 @@ export class UpdateTaskDto {
   title?: string
 
   @ApiPropertyOptional({ maxLength: 10_000, nullable: true })
+  @Trim()
   @IsString()
   @MaxLength(10_000)
   @IsOptional()
@@ -113,7 +121,7 @@ export class UpdateTaskDto {
   recurrence?: TaskRecurrence
 
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   dueAt?: string | null
 
@@ -139,6 +147,7 @@ export class AssignTaskDto {
 
 export class CreateChecklistItemDto {
   @ApiProperty({ minLength: 1, maxLength: 300 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(300)
@@ -155,6 +164,7 @@ export class CreateChecklistItemDto {
 
 export class UpdateChecklistItemDto {
   @ApiPropertyOptional({ minLength: 1, maxLength: 300 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(300)
@@ -172,6 +182,7 @@ export class UpdateChecklistItemDto {
 
 export class CreateTaskCommentDto {
   @ApiProperty({ minLength: 1, maxLength: 4_000 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(4_000)

@@ -7,15 +7,15 @@ import {
   TaskPriority,
   TaskRecurrence,
 } from '@prisma/client'
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
-  IsDateString,
   IsEnum,
   IsInt,
   IsOptional,
+  IsRFC3339,
   IsString,
   IsUrl,
   IsUUID,
@@ -28,6 +28,10 @@ import {
 } from 'class-validator'
 import { PageQueryDto } from '../common/page-query.dto'
 
+const Trim = () => Transform(({ value }: { value: unknown }) => (
+  typeof value === 'string' ? value.trim() : value
+))
+
 export class PublicationFeedQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ enum: PublicationType })
   @IsEnum(PublicationType)
@@ -35,6 +39,7 @@ export class PublicationFeedQueryDto extends PageQueryDto {
   type?: PublicationType
 
   @ApiPropertyOptional({ maxLength: 80 })
+  @Trim()
   @IsString()
   @MaxLength(80)
   @IsOptional()
@@ -70,24 +75,28 @@ export class PublicationQueryDto extends PublicationFeedQueryDto {
 
 export class CreatePublicationDto {
   @ApiProperty({ minLength: 3, maxLength: 180 })
+  @Trim()
   @IsString()
   @MinLength(3)
   @MaxLength(180)
   title!: string
 
   @ApiProperty({ pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 180 })
+  @Trim()
   @IsString()
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   @MaxLength(180)
   slug!: string
 
   @ApiProperty({ minLength: 1, maxLength: 500 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(500)
   summary!: string
 
   @ApiProperty({ minLength: 1, maxLength: 50_000 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(50_000)
@@ -104,6 +113,7 @@ export class CreatePublicationDto {
   type!: PublicationType
 
   @ApiProperty({ minLength: 1, maxLength: 80 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(80)
@@ -125,24 +135,26 @@ export class CreatePublicationDto {
   projectId?: string
 
   @ApiPropertyOptional({ maxLength: 60 })
+  @Trim()
   @IsString()
   @MaxLength(60)
   @IsOptional()
   audienceRoleCode?: string
 
   @ApiPropertyOptional({ format: 'date-time' })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   scheduledAt?: string
 
   @ApiPropertyOptional({ format: 'date-time' })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   expiresAt?: string
 }
 
 export class UpdatePublicationDto {
   @ApiPropertyOptional({ minLength: 3, maxLength: 180 })
+  @Trim()
   @IsString()
   @MinLength(3)
   @MaxLength(180)
@@ -150,6 +162,7 @@ export class UpdatePublicationDto {
   title?: string
 
   @ApiPropertyOptional({ pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 180 })
+  @Trim()
   @IsString()
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   @MaxLength(180)
@@ -157,6 +170,7 @@ export class UpdatePublicationDto {
   slug?: string
 
   @ApiPropertyOptional({ minLength: 1, maxLength: 500 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(500)
@@ -164,6 +178,7 @@ export class UpdatePublicationDto {
   summary?: string
 
   @ApiPropertyOptional({ minLength: 1, maxLength: 50_000 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(50_000)
@@ -182,6 +197,7 @@ export class UpdatePublicationDto {
   type?: PublicationType
 
   @ApiPropertyOptional({ minLength: 1, maxLength: 80 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(80)
@@ -204,30 +220,31 @@ export class UpdatePublicationDto {
   projectId?: string | null
 
   @ApiPropertyOptional({ maxLength: 60, nullable: true })
+  @Trim()
   @IsString()
   @MaxLength(60)
   @IsOptional()
   audienceRoleCode?: string | null
 
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   scheduledAt?: string | null
 
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   expiresAt?: string | null
 }
 
 export class PublishPublicationDto {
   @ApiPropertyOptional({ format: 'date-time', description: 'Omitir para publicar inmediatamente.' })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   scheduledAt?: string
 
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   expiresAt?: string | null
 }
@@ -236,12 +253,14 @@ export class PublicationAcknowledgementQueryDto extends PageQueryDto {}
 
 export class PublicationTaskDto {
   @ApiProperty({ minLength: 1, maxLength: 180 })
+  @Trim()
   @IsString()
   @MinLength(1)
   @MaxLength(180)
   title!: string
 
   @ApiPropertyOptional({ maxLength: 10_000 })
+  @Trim()
   @IsString()
   @MaxLength(10_000)
   @IsOptional()
@@ -268,7 +287,7 @@ export class PublicationTaskDto {
   priority: TaskPriority = TaskPriority.NORMAL
 
   @ApiPropertyOptional({ format: 'date-time' })
-  @IsDateString()
+  @IsRFC3339()
   @IsOptional()
   dueAt?: string
 

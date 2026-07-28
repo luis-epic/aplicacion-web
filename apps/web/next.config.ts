@@ -9,7 +9,7 @@ const apiOrigin = new URL(
 ).origin
 
 const securityHeaders = [
-  { key: 'Content-Security-Policy', value: `default-src 'self'; connect-src 'self' ${apiOrigin}; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'` },
+  { key: 'Content-Security-Policy', value: `default-src 'self'; connect-src 'self' ${apiOrigin}; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob: https:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'` },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },

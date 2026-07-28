@@ -119,6 +119,7 @@ export class TasksService {
   }
 
   async create(dto: CreateTaskDto, actor: SessionUser): Promise<WorkTaskView> {
+    if (dto.assigneeId || dto.supervisorId) this.assertPermission(actor, 'tasks.assign')
     const fingerprint = this.taskFingerprint(dto)
     const prior = await this.prisma.workTask.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: taskInclude })
     if (prior) return this.resolveIdempotency(prior, dto, actor.id, fingerprint)
@@ -169,9 +170,11 @@ export class TasksService {
       this.assertMutable(current.status)
       this.assertFutureDueAt(dto.dueAt)
       const projectId = dto.projectId === undefined ? current.projectId : dto.projectId
-      const usersToValidate = [current.assigneeId, current.supervisorId]
-      if (!this.hasPermission(actor, 'tasks.manage')) usersToValidate.push(actor.id)
-      await this.validateProjectAndUsers(tx, projectId, usersToValidate)
+      if (projectId !== current.projectId) {
+        const usersToValidate = [current.assigneeId, current.supervisorId]
+        if (!this.hasPermission(actor, 'tasks.manage')) usersToValidate.push(actor.id)
+        await this.validateProjectAndUsers(tx, projectId, usersToValidate, false)
+      }
       const result = await tx.workTask.updateMany({
         where: { id, status: current.status },
         data: {
@@ -381,8 +384,10 @@ export class TasksService {
 
   async createComment(id: string, dto: CreateTaskCommentDto, actor: SessionUser): Promise<TaskCommentView> {
     const comment = await this.prisma.$transaction(async (tx) => {
+      await this.lockTask(tx, id)
       const task = await this.getRecord(tx, id)
       this.assertCanAccess(task, actor)
+      this.assertCommentable(task.status)
       const created = await tx.taskComment.create({
         data: { taskId: id, authorId: actor.id, content: dto.content.trim() },
         include: { author: { select: { displayName: true } } },
@@ -438,11 +443,25 @@ export class TasksService {
     return item
   }
 
-  private async validateProjectAndUsers(tx: DbClient, projectId: string | null, candidateIds: Array<string | null | undefined>): Promise<void> {
+  private async validateProjectAndUsers(
+    tx: DbClient,
+    projectId: string | null,
+    candidateIds: Array<string | null | undefined>,
+    requireActive = true,
+  ): Promise<void> {
     const userIds = [...new Set(candidateIds.filter((id): id is string => Boolean(id)))]
     if (userIds.length) {
-      const activeUsers = await tx.user.count({ where: { id: { in: userIds }, status: UserStatus.ACTIVE } })
-      if (activeUsers !== userIds.length) throw new NotFoundException('Uno o más usuarios no existen o no están activos.')
+      const users = await tx.user.count({
+        where: {
+          id: { in: userIds },
+          status: requireActive ? UserStatus.ACTIVE : undefined,
+        },
+      })
+      if (users !== userIds.length) {
+        throw new NotFoundException(requireActive
+          ? 'Uno o más usuarios no existen o no están activos.'
+          : 'Uno o más usuarios no existen.')
+      }
     }
     if (!projectId) return
 
@@ -516,6 +535,14 @@ export class TasksService {
       status,
       [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED],
       'La tarea debe reabrirse antes de modificar sus datos o checklist.',
+    )
+  }
+
+  private assertCommentable(status: TaskStatus): void {
+    this.assertStatus(
+      status,
+      [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.IN_REVIEW],
+      'No pueden agregarse comentarios a una tarea cerrada.',
     )
   }
 

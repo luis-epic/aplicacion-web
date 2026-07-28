@@ -155,6 +155,34 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     return this.findPage(where, query, [{ priority: 'desc' }, { publishedAt: 'desc' }])
   }
 
+  async reviewQueue(query: PublicationQueryDto): Promise<PageResult<PublicationView>> {
+    const search = query.search?.trim()
+    const reviewStatuses: PublicationStatus[] = [PublicationStatus.IN_REVIEW, PublicationStatus.SCHEDULED]
+    const status = query.status
+      ? reviewStatuses.includes(query.status) ? query.status : { in: [] }
+      : { in: reviewStatuses }
+    const where: Prisma.PublicationWhereInput = {
+      status,
+      type: query.type,
+      audience: query.audience,
+      priority: query.priority,
+      projectId: query.projectId,
+      authorId: query.authorId,
+      category: query.category?.trim(),
+      OR: search ? [
+        { title: { contains: search, mode: 'insensitive' } },
+        { slug: { contains: search, mode: 'insensitive' } },
+        { summary: { contains: search, mode: 'insensitive' } },
+        { category: { contains: search, mode: 'insensitive' } },
+      ] : undefined,
+    }
+    return this.findPage(where, query, [{ updatedAt: 'desc' }])
+  }
+
+  async mine(query: PublicationQueryDto, actor: SessionUser): Promise<PageResult<PublicationView>> {
+    return this.list({ ...query, authorId: actor.id })
+  }
+
   async list(query: PublicationQueryDto): Promise<PageResult<PublicationView>> {
     const search = query.search?.trim()
     const where: Prisma.PublicationWhereInput = {
@@ -396,6 +424,12 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     actor: SessionUser,
     retryOnConflict = true,
   ): Promise<GeneratedTaskView[]> {
+    if (
+      dto.tasks.some((task) => task.assigneeId || task.supervisorId) &&
+      !actor.permissions.includes('tasks.assign')
+    ) {
+      throw new ForbiddenException('Necesitas tasks.assign para crear tareas con responsables o supervisores.')
+    }
     try {
       return await this.prisma.$transaction(async (tx) => {
         const publication = await this.getRecord(tx, id)
@@ -645,6 +679,11 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     tx: DatabaseClient = this.prisma,
   ): Promise<void> {
     if (allowManage && actor.permissions.includes('publications.manage')) return
+    if (
+      allowManage &&
+      publication.authorId === actor.id &&
+      actor.permissions.includes('publications.create')
+    ) return
     if (!actor.permissions.includes('publications.read')) {
       throw new ForbiddenException('No tienes permiso para leer publicaciones.')
     }

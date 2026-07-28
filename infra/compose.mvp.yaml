@@ -1,0 +1,129 @@
+name: opeconca-mvp
+
+services:
+  postgres:
+    image: postgres:17.5-alpine3.22
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:8.0.3-alpine3.21
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api-migrate:
+    image: opeconca-api-migrate:mvp
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: migration
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: ${ADMIN_NAME}
+      ADMIN_SEED_MODE: bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - node node_modules/prisma/build/index.js migrate deploy && node node_modules/tsx/dist/cli.mjs prisma/seed.ts
+    restart: 'no'
+
+  api:
+    image: opeconca-api:mvp
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: runtime
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      TRUST_PROXY_HOPS: 0
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      REDIS_URL: redis://redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-30}
+      APP_URL: http://localhost:3000
+      FIELD_APP_URL: http://localhost:5173
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:4000:4000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  web:
+    image: opeconca-web:mvp
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: http://localhost:4000/api/v1
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:3000:3000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  field:
+    image: opeconca-field:mvp
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.field
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:5173:8080'
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8080/']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres_data:
+  redis_data:

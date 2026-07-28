@@ -1,0 +1,30 @@
+{
+  "name": "@opeconca/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "predev": "pnpm run build",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build": "tsc -p tsconfig.json",
+    "lint": "oxlint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit --pretty false"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "oxlint": "1.71.0",
+    "typescript": "6.0.2"
+  }
+}

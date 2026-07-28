@@ -1,0 +1,205 @@
+name: ${COMPOSE_PROJECT_NAME:-opeconca-production}
+
+services:
+  postgres:
+    image: postgres:17.5-alpine3.22
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16m,uid=70,gid=70
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    pids_limit: 200
+    cpus: 1.0
+    mem_limit: 1g
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  api-migrate:
+    image: ${API_MIGRATION_IMAGE:?API_MIGRATION_IMAGE is required}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: migration
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+    secrets:
+      - database_url
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    cpus: 0.5
+    mem_limit: 512m
+    restart: 'no'
+
+  api:
+    image: ${API_IMAGE:?API_IMAGE is required}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: runtime
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:?TRUST_PROXY_HOPS is required}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      JWT_ACCESS_SECRET_FILE: /run/secrets/jwt_access_secret
+      JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+      JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:?JWT_ACCESS_TTL_SECONDS is required}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:?JWT_REFRESH_TTL_DAYS is required}
+      APP_URL: ${APP_URL:?APP_URL is required}
+      FIELD_APP_URL: ${FIELD_APP_URL:?FIELD_APP_URL is required}
+    secrets:
+      - database_url
+      - jwt_access_secret
+      - jwt_refresh_secret
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+    networks:
+      - edge
+      - app
+      - data
+    ports:
+      - 127.0.0.1:${API_BIND_PORT:-4000}:4000
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 200
+    cpus: 1.0
+    mem_limit: 768m
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web:
+    image: ${WEB_IMAGE:?WEB_IMAGE is required}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+      target: runtime
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - edge
+      - app
+    ports:
+      - 127.0.0.1:${WEB_BIND_PORT:-3000}:3000
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000
+      - /app/.next/cache:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 200
+    cpus: 1.0
+    mem_limit: 768m
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  field:
+    image: ${FIELD_IMAGE:?FIELD_IMAGE is required}
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.field
+      target: runtime
+    restart: unless-stopped
+    networks:
+      - edge
+    ports:
+      - 127.0.0.1:${FIELD_BIND_PORT:-5173}:8080
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101
+      - /var/run:rw,noexec,nosuid,nodev,size=8m,uid=101,gid=101
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    cpus: 0.5
+    mem_limit: 128m
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+networks:
+  edge:
+  app:
+    internal: true
+  data:
+    internal: true
+
+volumes:
+  postgres_data:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?POSTGRES_PASSWORD_FILE is required}
+  database_url:
+    file: ${DATABASE_URL_FILE:?DATABASE_URL_FILE is required}
+  jwt_access_secret:
+    file: ${JWT_ACCESS_SECRET_FILE:?JWT_ACCESS_SECRET_FILE is required}
+  jwt_refresh_secret:
+    file: ${JWT_REFRESH_SECRET_FILE:?JWT_REFRESH_SECRET_FILE is required}

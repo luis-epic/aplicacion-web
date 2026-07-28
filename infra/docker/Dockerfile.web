@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1
+FROM node:24.11.1-bookworm-slim AS build
+
+RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
+WORKDIR /workspace
+COPY . .
+
+RUN pnpm install --frozen-lockfile
+ARG NEXT_PUBLIC_API_URL
+RUN test -n "$NEXT_PUBLIC_API_URL"
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN pnpm --filter @opeconca/contracts build \
+    && pnpm --filter @opeconca/web build \
+    && pnpm --filter @opeconca/web deploy --prod --legacy /opt/web \
+    && cp -R apps/web/.next /opt/web/.next \
+    && if [ -d apps/web/public ]; then cp -R apps/web/public /opt/web/public; fi
+
+FROM node:24.11.1-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOME=/tmp
+WORKDIR /app
+COPY --from=build --chown=node:node /opt/web ./
+
+USER node
+EXPOSE 3000
+CMD ["node", "node_modules/next/dist/bin/next", "start", "--port", "3000"]

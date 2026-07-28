@@ -1,0 +1,58 @@
+{
+  "id": "./",
+  "name": "OPECONCA Campo — Operación en terreno",
+  "short_name": "OPECONCA",
+  "description": "Planifica salidas, consulta lluvia y sismos, y completa listas operativas incluso sin conexión.",
+  "lang": "es",
+  "start_url": "./#/inicio",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#eef4f1",
+  "theme_color": "#0f6b5d",
+  "categories": ["productivity", "utilities", "business"],
+  "icons": [
+    {
+      "src": "./icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "./maskable-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva salida",
+      "short_name": "Nueva salida",
+      "description": "Prepara una nueva checklist operativa",
+      "url": "./#/inicio",
+      "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Mi checklist",
+      "short_name": "Mi lista",
+      "description": "Consulta tu checklist actual",
+      "url": "./#/lista",
+      "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Rutinas",
+      "short_name": "Rutinas",
+      "description": "Abre tus rutinas guardadas",
+      "url": "./#/rutinas",
+      "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    }
+  ]
+}

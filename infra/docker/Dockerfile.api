@@ -1,0 +1,62 @@
+# syntax=docker/dockerfile:1
+FROM node:24.11.1-bookworm-slim AS build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
+
+WORKDIR /workspace
+COPY . .
+
+RUN pnpm install --frozen-lockfile
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/build?schema=public
+RUN pnpm --filter @opeconca/contracts build \
+    && pnpm --filter @opeconca/api prisma:generate \
+    && pnpm --filter @opeconca/api build \
+    && pnpm --filter @opeconca/api deploy --prod --legacy /opt/api \
+    && pnpm --filter @opeconca/api deploy --legacy /opt/migration \
+    && cp -R apps/api/dist /opt/api/dist \
+    && generated_client_dir="$(dirname "$(dirname "$(readlink -f apps/api/node_modules/@prisma/client)")")/.prisma" \
+    && for deployment in /opt/api /opt/migration; do \
+         deployed_client_dir="$(dirname "$(dirname "$(readlink -f "$deployment/node_modules/@prisma/client")")")/.prisma"; \
+         rm -rf "$deployed_client_dir"; \
+         cp -R "$generated_client_dir" "$deployed_client_dir"; \
+       done
+
+COPY infra/docker/node-secrets-entrypoint.sh /usr/local/bin/node-secrets-entrypoint
+RUN chmod 0555 /usr/local/bin/node-secrets-entrypoint
+
+FROM node:24.11.1-bookworm-slim AS migration
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production \
+    HOME=/tmp
+WORKDIR /app
+COPY --from=build --chown=node:node /opt/migration ./
+COPY --from=build /usr/local/bin/node-secrets-entrypoint /usr/local/bin/node-secrets-entrypoint
+
+USER node
+ENTRYPOINT ["node-secrets-entrypoint"]
+CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
+
+FROM node:24.11.1-bookworm-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV NODE_ENV=production \
+    PORT=4000 \
+    HOME=/tmp
+WORKDIR /app
+COPY --from=build --chown=node:node /opt/api ./
+COPY --from=build /usr/local/bin/node-secrets-entrypoint /usr/local/bin/node-secrets-entrypoint
+
+USER node
+EXPOSE 4000
+ENTRYPOINT ["node-secrets-entrypoint"]
+CMD ["node", "dist/main.js"]

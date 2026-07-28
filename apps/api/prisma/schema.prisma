@@ -1,0 +1,422 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [citext]
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PermissionCode {
+  USERS_READ            @map("users.read")
+  USERS_MANAGE          @map("users.manage")
+  CLIENTS_READ          @map("clients.read")
+  CLIENTS_MANAGE        @map("clients.manage")
+  PROJECTS_READ         @map("projects.read")
+  PROJECTS_MANAGE       @map("projects.manage")
+  FIELD_REPORTS_CREATE  @map("fieldReports.create")
+  FIELD_REPORTS_READ    @map("fieldReports.read")
+  FIELD_REPORTS_APPROVE @map("fieldReports.approve")
+  PUBLICATIONS_READ     @map("publications.read")
+  PUBLICATIONS_CREATE   @map("publications.create")
+  PUBLICATIONS_MANAGE   @map("publications.manage")
+  PUBLICATIONS_PUBLISH  @map("publications.publish")
+  TASKS_READ            @map("tasks.read")
+  TASKS_CREATE          @map("tasks.create")
+  TASKS_MANAGE          @map("tasks.manage")
+  TASKS_ASSIGN          @map("tasks.assign")
+  TASKS_COMPLETE        @map("tasks.complete")
+  TASKS_APPROVE         @map("tasks.approve")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectMemberRole {
+  SUPERVISOR
+  WORKER
+  VIEWER
+}
+
+enum ReportStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PublicationType {
+  DAILY
+  WEEKLY
+  PROJECT_NEWS
+  SAFETY
+  HR
+  RECOGNITION
+  URGENT
+}
+
+enum PublicationStatus {
+  DRAFT
+  IN_REVIEW
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum PublicationAudience {
+  ALL
+  PROJECT
+  ROLE
+}
+
+enum PublicationPriority {
+  NORMAL
+  IMPORTANT
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  BLOCKED
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum TaskRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model User {
+  id                 String          @id @default(uuid()) @db.Uuid
+  email              String          @unique @db.Citext
+  passwordHash       String          @db.VarChar(255)
+  displayName        String          @db.VarChar(120)
+  status             UserStatus      @default(ACTIVE)
+  tokenVersion       Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  roles              UserRole[]
+  projectMemberships ProjectMember[]
+  authoredReports              FieldReport[]                 @relation("ReportAuthor")
+  approvedReports              FieldReport[]                 @relation("ReportApprover")
+  authoredPublications         Publication[]                 @relation("PublicationAuthor")
+  reviewedPublications         Publication[]                 @relation("PublicationReviewer")
+  publicationAcknowledgements PublicationAcknowledgement[]
+  createdTasks                 WorkTask[]                    @relation("TaskCreator")
+  assignedTasks                WorkTask[]                    @relation("TaskAssignee")
+  supervisedTasks              WorkTask[]                    @relation("TaskSupervisor")
+  taskComments                 TaskComment[]
+  auditEvents                  AuditLog[]                    @relation("AuditActor")
+  refreshSessions    RefreshSession[]
+}
+
+model RefreshSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  familyId     String    @db.Uuid
+  userId       String    @db.Uuid
+  tokenVersion Int
+  tokenHash    String    @db.Char(64)
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  lastUsedAt   DateTime  @default(now())
+  userAgent    String?   @db.VarChar(512)
+  ipAddress    String?   @db.VarChar(64)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId, revokedAt])
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id          String   @id @default(uuid()) @db.Uuid
+  email       String   @db.Citext
+  succeeded   Boolean
+  ipAddress   String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(512)
+  attemptedAt DateTime @default(now())
+
+  @@index([email, attemptedAt])
+  @@index([ipAddress, attemptedAt])
+}
+
+model LoginThrottle {
+  email           String    @id @db.Citext
+  failedCount     Int       @default(0)
+  windowStartedAt DateTime
+  blockedUntil    DateTime?
+  updatedAt       DateTime  @updatedAt
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique @db.VarChar(60)
+  name        String           @db.VarChar(100)
+  description String?          @db.VarChar(300)
+  users       UserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        PermissionCode   @unique
+  description String?          @db.VarChar(300)
+  roles       RolePermission[]
+}
+
+model UserRole {
+  userId String @db.Uuid
+  roleId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model RolePermission {
+  roleId       String     @db.Uuid
+  permissionId String     @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model Client {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(160)
+  taxId     String?   @unique @db.VarChar(50)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  contacts  Contact[]
+  projects  Project[]
+}
+
+model Contact {
+  id        String  @id @default(uuid()) @db.Uuid
+  clientId  String  @db.Uuid
+  name      String  @db.VarChar(120)
+  email     String? @db.VarChar(254)
+  phone     String? @db.VarChar(40)
+  position  String? @db.VarChar(100)
+  isPrimary Boolean @default(false)
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+model Project {
+  id          String          @id @default(uuid()) @db.Uuid
+  code        String          @unique @db.VarChar(40)
+  clientId    String          @db.Uuid
+  name        String          @db.VarChar(160)
+  description String?         @db.Text
+  status      ProjectStatus   @default(DRAFT)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  client      Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  members      ProjectMember[]
+  reports      FieldReport[]
+  publications Publication[]
+  tasks        WorkTask[]
+
+  @@index([clientId, status])
+}
+
+model ProjectMember {
+  projectId String            @db.Uuid
+  userId    String            @db.Uuid
+  role      ProjectMemberRole
+  joinedAt  DateTime          @default(now())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
+model FieldReport {
+  id              String       @id @default(uuid()) @db.Uuid
+  projectId       String       @db.Uuid
+  authorId        String       @db.Uuid
+  approverId      String?      @db.Uuid
+  reportDate      DateTime     @db.Date
+  summary         String       @db.Text
+  personnelCount  Int          @default(0)
+  weatherNotes    String?      @db.Text
+  weatherSnapshot Json?
+  incidentNotes   String?      @db.Text
+  status          ReportStatus @default(DRAFT)
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  clientUpdatedAt DateTime
+  idempotencyKey  String       @unique @db.Uuid
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  author          User         @relation("ReportAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  approver        User?        @relation("ReportApprover", fields: [approverId], references: [id], onDelete: Restrict)
+  attachments     Attachment[]
+
+  @@index([projectId, reportDate])
+  @@index([authorId, status])
+}
+
+model Attachment {
+  id         String      @id @default(uuid()) @db.Uuid
+  reportId   String      @db.Uuid
+  objectKey  String      @unique @db.VarChar(500)
+  fileName   String      @db.VarChar(255)
+  contentType String     @db.VarChar(120)
+  sizeBytes  Int
+  createdAt  DateTime    @default(now())
+  report     FieldReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+model Publication {
+  id               String              @id @default(uuid()) @db.Uuid
+  title            String              @db.VarChar(180)
+  slug             String              @unique @db.VarChar(180)
+  summary          String              @db.VarChar(500)
+  content          String              @db.Text
+  coverImageUrl    String?             @db.VarChar(2000)
+  type             PublicationType
+  category         String              @db.VarChar(80)
+  status           PublicationStatus   @default(DRAFT)
+  priority         PublicationPriority @default(NORMAL)
+  audience         PublicationAudience @default(ALL)
+  audienceRoleCode String?             @db.VarChar(60)
+  projectId        String?             @db.Uuid
+  authorId         String              @db.Uuid
+  reviewerId       String?             @db.Uuid
+  scheduledAt      DateTime?
+  publishedAt      DateTime?
+  expiresAt        DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  project          Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  author           User                @relation("PublicationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  reviewer         User?               @relation("PublicationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  acknowledgements PublicationAcknowledgement[]
+  generatedTasks   WorkTask[]
+
+  @@index([status, publishedAt])
+  @@index([projectId, status])
+  @@index([type, category])
+}
+
+model PublicationAcknowledgement {
+  publicationId String   @db.Uuid
+  userId        String   @db.Uuid
+  readAt        DateTime @default(now())
+  publication   Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([publicationId, userId])
+  @@index([userId, readAt])
+}
+
+model WorkTask {
+  id                  String         @id @default(uuid()) @db.Uuid
+  projectId           String?        @db.Uuid
+  title               String         @db.VarChar(180)
+  description         String?        @db.Text
+  status              TaskStatus     @default(PENDING)
+  priority            TaskPriority   @default(NORMAL)
+  recurrence          TaskRecurrence @default(NONE)
+  creatorId           String         @db.Uuid
+  assigneeId          String?        @db.Uuid
+  supervisorId        String?        @db.Uuid
+  sourcePublicationId String?        @db.Uuid
+  idempotencyKey         String?        @unique @db.Uuid
+  idempotencyFingerprint String?        @db.Char(64)
+  dueAt                  DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  estimatedMinutes    Int?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  project             Project?       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  creator             User           @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  assignee            User?          @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  supervisor          User?          @relation("TaskSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  sourcePublication   Publication?   @relation(fields: [sourcePublicationId], references: [id], onDelete: SetNull)
+  checklist           TaskChecklistItem[]
+  comments            TaskComment[]
+
+  @@index([assigneeId, status, dueAt])
+  @@index([projectId, status])
+  @@index([supervisorId, status])
+}
+
+model TaskChecklistItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @db.Uuid
+  label     String   @db.VarChar(300)
+  completed Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  task      WorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, position])
+}
+
+model TaskComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @db.Uuid
+  authorId  String   @db.Uuid
+  content   String   @db.VarChar(4000)
+  createdAt DateTime @default(now())
+  task      WorkTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String   @db.VarChar(120)
+  entityType String   @db.VarChar(80)
+  entityId   String?  @db.VarChar(80)
+  metadata   Json?
+  ipAddress  String?  @db.VarChar(64)
+  createdAt  DateTime @default(now())
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+}

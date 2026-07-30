@@ -95,7 +95,7 @@ jobs:
             local target="$repository/$name:$GITHUB_SHA"
             docker tag "$source" "$target"
             local digest
-            digest="$(docker push "$target" | tee /dev/stderr | awk '/^digest:/ {print $2}' | tail -1)"
+            digest="$(docker push "$target" | tee /dev/stderr | awk '/digest: sha256:/ { for (i = 1; i <= NF; i++) if ($i ~ /^sha256:/) { print $i; exit } }')"
             [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Digest inválido para $name" >&2; exit 1; }
             echo "$variable=$repository/$name@$digest" >> "$GITHUB_ENV"
           }

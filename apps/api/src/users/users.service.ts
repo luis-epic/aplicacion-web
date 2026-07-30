@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma, UserStatus } from '@prisma/client'
 import { argon2id, hash } from 'argon2'
 import type { SessionUser } from '@opeconca/contracts'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import { PageQueryDto, type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso, throwPrismaConflict } from '../common/prisma-errors'
@@ -12,12 +13,18 @@ const userArgs = Prisma.validator<Prisma.UserDefaultArgs>()({
 })
 type UserRecord = Prisma.UserGetPayload<typeof userArgs>
 
+export interface RoleView {
+  id: string
+  code: string
+  name: string
+}
+
 export interface UserView {
   id: string
   email: string
   displayName: string
   status: UserStatus
-  roles: Array<{ id: string; code: string; name: string }>
+  roles: RoleView[]
   createdAt: string
   updatedAt: string
 }
@@ -26,14 +33,18 @@ export interface UserView {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: PageQueryDto): Promise<PageResult<UserView>> {
+  async list(query: PageQueryDto, actor: SessionUser): Promise<PageResult<UserView>> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     const search = query.search?.trim()
-    const where: Prisma.UserWhereInput = search
-      ? { OR: [
-          { displayName: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } },
-        ] }
-      : {}
+    const where: Prisma.UserWhereInput = {
+      organizationId,
+      OR: search
+        ? [
+            { displayName: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+          ]
+        : undefined,
+    }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         ...pageArgs(query),
@@ -46,19 +57,34 @@ export class UsersService {
     return { items: items.map((item) => this.toView(item)), page: query.page, pageSize: query.pageSize, total }
   }
 
-  async get(id: string): Promise<UserView> {
-    const user = await this.prisma.user.findUnique({ where: { id }, ...userArgs })
+  async get(id: string, actor: SessionUser): Promise<UserView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
+    const user = await this.prisma.user.findFirst({
+      where: { id, organizationId },
+      ...userArgs,
+    })
     if (!user) throw new NotFoundException('Usuario no encontrado.')
     return this.toView(user)
   }
 
+  async listRoles(actor: SessionUser): Promise<RoleView[]> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
+    return this.prisma.role.findMany({
+      where: { organizationId },
+      select: { id: true, code: true, name: true },
+      orderBy: { name: 'asc' },
+    })
+  }
+
   async create(dto: CreateUserDto, actor: SessionUser): Promise<UserView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     const passwordHash = await this.hashPassword(dto.password)
     try {
       const user = await this.prisma.$transaction(async (tx) => {
-        await this.assertRoles(tx, dto.roleIds ?? [])
+        await this.assertRoles(tx, dto.roleIds ?? [], organizationId)
         const created = await tx.user.create({
           data: {
+            organizationId,
             displayName: dto.displayName.trim(),
             email: dto.email,
             passwordHash,
@@ -70,6 +96,7 @@ export class UsersService {
           ...userArgs,
         })
         await tx.auditLog.create({ data: {
+          organizationId,
           action: 'user.created', actorId: actor.id, entityId: created.id, entityType: 'User',
           metadata: { roleIds: dto.roleIds ?? [] },
         } })
@@ -85,9 +112,10 @@ export class UsersService {
     const passwordHash = dto.password ? await this.hashPassword(dto.password) : undefined
     try {
       const user = await this.prisma.$transaction(async (tx) => {
-        const existing = await tx.user.findUnique({ where: { id } })
+        const organizationId = await requireActiveOrganizationId(tx, actor)
+        const existing = await tx.user.findFirst({ where: { id, organizationId } })
         if (!existing) throw new NotFoundException('Usuario no encontrado.')
-        if (dto.roleIds) await this.assertRoles(tx, dto.roleIds)
+        if (dto.roleIds) await this.assertRoles(tx, dto.roleIds, organizationId)
         const invalidatesSessions = Boolean(
           passwordHash ||
           dto.roleIds !== undefined ||
@@ -114,6 +142,7 @@ export class UsersService {
           await tx.refreshSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } })
         }
         await tx.auditLog.create({ data: {
+          organizationId,
           action: 'user.updated', actorId: actor.id, entityId: id, entityType: 'User',
           metadata: { fields: Object.keys(dto).filter((field) => field !== 'password') },
         } })
@@ -130,10 +159,12 @@ export class UsersService {
     if (id === actor.id) throw new ConflictException('No puedes eliminar tu propio usuario.')
     try {
       await this.prisma.$transaction(async (tx) => {
-        const existing = await tx.user.findUnique({ where: { id }, select: { id: true } })
+        const organizationId = await requireActiveOrganizationId(tx, actor)
+        const existing = await tx.user.findFirst({ where: { id, organizationId }, select: { id: true } })
         if (!existing) throw new NotFoundException('Usuario no encontrado.')
         await tx.user.delete({ where: { id } })
         await tx.auditLog.create({ data: {
+          organizationId,
           action: 'user.deleted', actorId: actor.id, entityId: id, entityType: 'User',
         } })
       })
@@ -143,9 +174,9 @@ export class UsersService {
     }
   }
 
-  private async assertRoles(tx: Prisma.TransactionClient, roleIds: string[]): Promise<void> {
+  private async assertRoles(tx: Prisma.TransactionClient, roleIds: string[], organizationId: string): Promise<void> {
     if (!roleIds.length) return
-    const count = await tx.role.count({ where: { id: { in: roleIds } } })
+    const count = await tx.role.count({ where: { id: { in: roleIds }, organizationId } })
     if (count !== roleIds.length) throw new NotFoundException('Uno o más roles no existen.')
   }
 

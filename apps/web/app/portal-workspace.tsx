@@ -1,7 +1,7 @@
 'use client'
 
 import type { AuthSession } from '@opeconca/contracts'
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageResult, PortalApi } from './portal-api'
 import { PublicationsWorkspace } from './portal-publications'
 import { TasksWorkspace } from './portal-tasks'
@@ -10,12 +10,14 @@ import styles from './portal-workspace.module.css'
 type Area = 'dashboard' | 'publications' | 'tasks' | 'users' | 'clients' | 'projects' | 'reports'
 type Permission = AuthSession['user']['permissions'][number]
 
-interface UserItem { id: string; email: string; displayName: string; status: 'ACTIVE' | 'INACTIVE'; roles: Array<{ code: string; name: string }> }
+interface RoleItem { id: string; code: string; name: string }
+interface UserItem { id: string; email: string; displayName: string; status: 'ACTIVE' | 'INACTIVE'; roles: RoleItem[] }
 interface ClientItem { id: string; name: string; taxId: string | null; isActive: boolean; contactCount?: number }
 interface ContactItem { id: string; name: string; email: string | null; phone: string | null; position: string | null; isPrimary: boolean }
 interface ProjectItem { id: string; code: string; clientId: string; clientName: string; name: string; status: string; description: string | null }
 interface ProjectMember { userId: string; displayName: string; email: string; role: string }
 interface ReportItem { id: string; projectId: string; projectCode: string; projectName: string; authorId: string; authorName: string; approverName: string | null; reportDate: string; summary: string; personnelCount: number; incidentNotes: string | null; status: string }
+interface Confirmation { title: string; description: string; confirmLabel: string; operation: () => Promise<unknown>; success: string }
 
 const areas: Array<{ id: Area; label: string; permissions: Permission[] }> = [
   { id: 'dashboard', label: 'Resumen', permissions: [] },
@@ -28,6 +30,7 @@ const areas: Array<{ id: Area; label: string; permissions: Permission[] }> = [
 ]
 
 function formValue(form: FormData, name: string): string { return String(form.get(name) ?? '').trim() }
+function roleIds(form: FormData): string[] { return form.getAll('roleIds').map((value) => String(value)) }
 function can(user: AuthSession['user'], ...permissions: Permission[]): boolean { return permissions.some((permission) => user.permissions.includes(permission)) }
 
 export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
@@ -43,6 +46,7 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [users, setUsers] = useState<UserItem[]>([])
+  const [roles, setRoles] = useState<RoleItem[]>([])
   const [clients, setClients] = useState<ClientItem[]>([])
   const [projects, setProjects] = useState<ProjectItem[]>([])
   const [reports, setReports] = useState<ReportItem[]>([])
@@ -50,13 +54,21 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
   const [members, setMembers] = useState<ProjectMember[]>([])
   const [selectedClient, setSelectedClient] = useState<ClientItem | null>(null)
   const [selectedProject, setSelectedProject] = useState<ProjectItem | null>(null)
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
 
   const load = useCallback(async (target: Area = area) => {
     setLoading(true); setError('')
     try {
       const query = new URLSearchParams({ page: '1', pageSize: '50' })
       if (search) query.set('search', search)
-      if (target === 'users') setUsers((await api.request<PageResult<UserItem>>(`/users?${query}`)).items)
+      if (target === 'users') {
+        const [userPage, availableRoles] = await Promise.all([
+          api.request<PageResult<UserItem>>(`/users?${query}`),
+          can(session.user, 'users.manage') ? api.request<RoleItem[]>('/users/roles') : Promise.resolve([]),
+        ])
+        setUsers(userPage.items)
+        setRoles(availableRoles)
+      }
       if (target === 'clients') setClients((await api.request<PageResult<ClientItem>>(`/clients?${query}`)).items)
       if (target === 'projects') {
         const [projectPage, clientPage, userPage] = await Promise.all([
@@ -93,8 +105,27 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
 
   const createUser = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget)
-    void run(() => api.request('/users', { method: 'POST', body: JSON.stringify({ displayName: formValue(form, 'displayName'), email: formValue(form, 'email'), password: formValue(form, 'password') }) }), 'Usuario creado. Asigna su acceso mediante la administración de roles cuando ese catálogo esté disponible.')
+    void run(() => api.request('/users', { method: 'POST', body: JSON.stringify({ displayName: formValue(form, 'displayName'), email: formValue(form, 'email'), password: formValue(form, 'password'), roleIds: roleIds(form) }) }), 'Usuario creado y acceso asignado.')
     event.currentTarget.reset()
+  }
+  const updateUserRoles = (user: UserItem) => (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget)
+    void run(() => api.request(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ roleIds: roleIds(form) }) }), `Acceso de ${user.displayName} actualizado.`)
+  }
+  const updateUserStatus = (user: UserItem) => {
+    const status = user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
+    const operation = () => api.request(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
+    if (status === 'INACTIVE') {
+      setConfirmation({
+        title: `¿Inactivar a ${user.displayName}?`,
+        description: 'Esta persona perderá el acceso y sus sesiones activas se revocarán. Podrás reactivarla más adelante.',
+        confirmLabel: 'Inactivar usuario',
+        operation,
+        success: 'Usuario inactivado.',
+      })
+      return
+    }
+    void run(operation, 'Usuario activado.')
   }
   const createClient = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const form = new FormData(event.currentTarget)
@@ -124,6 +155,12 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
     setSelectedProject(project); setSelectedClient(null); setError('')
     try { setMembers((await api.request<PageResult<ProjectMember>>(`/projects/${project.id}/members?page=1&pageSize=100`)).items) } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'No se pudieron cargar los miembros.') }
   }
+  const confirm = async () => {
+    const pending = confirmation
+    if (!pending) return
+    setConfirmation(null)
+    await run(pending.operation, pending.success)
+  }
 
   const visibleAreas = areas.filter((item) => !item.permissions.length || can(session.user, ...item.permissions))
 
@@ -137,16 +174,17 @@ export function PortalWorkspace({ session, onSession, onLogout }: Readonly<{
       <section className={styles.content}>
         <header className={styles.header}><div><p>Panel administrativo</p><h1>{areas.find((item) => item.id === area)?.label}</h1></div>{!['dashboard', 'publications', 'tasks'].includes(area) && <form className={styles.search} onSubmit={(event) => { event.preventDefault(); void load() }}><label><span>Buscar</span><input onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, código o correo" value={search} /></label><button disabled={loading} type="submit">Buscar</button><button disabled={loading} onClick={() => void load()} type="button">Actualizar</button></form>}</header>
         {message && <p className={styles.success} role="status">{message}</p>}
-        {error && <p className={styles.error} role="alert">{error}</p>}
+        {error && <div className={styles.errorNotice} role="alert"><p>{error}</p><button disabled={loading || busy} onClick={() => void load()} type="button">Reintentar</button></div>}
         {loading && <p className={styles.loading} role="status">Cargando información…</p>}
 
         {area === 'dashboard' && <Dashboard session={session} onOpen={setArea} />}
         {area === 'publications' && <PublicationsWorkspace api={api} session={session} />}
         {area === 'tasks' && <TasksWorkspace api={api} session={session} />}
-        {area === 'users' && !loading && <ResourceSection title="Equipo" action={can(session.user, 'users.manage') ? <UserForm disabled={busy} onSubmit={createUser} /> : null}>{users.length ? users.map((user) => <article className={styles.card} key={user.id}><div><span className={styles.badge}>{user.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span><h2>{user.displayName}</h2><p>{user.email}</p><small>{user.roles.map((role) => role.name).join(', ') || 'Sin rol asignado'}</small></div>{can(session.user, 'users.manage') && user.id !== session.user.id && <button disabled={busy} onClick={() => void run(() => api.request(`/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ status: user.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }) }), `Usuario ${user.status === 'ACTIVE' ? 'inactivado' : 'activado'}.`)} type="button">{user.status === 'ACTIVE' ? 'Inactivar' : 'Activar'}</button>}</article>) : <Empty />}</ResourceSection>}
+        {area === 'users' && !loading && <ResourceSection title="Equipo" action={can(session.user, 'users.manage') ? <UserForm disabled={busy} onSubmit={createUser} roles={roles} /> : null}>{users.length ? users.map((user) => <article className={styles.card} key={user.id}><div><span className={styles.badge}>{user.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}</span><h2>{user.displayName}</h2><p>{user.email}</p><small>{user.roles.map((role) => role.name).join(', ') || 'Sin rol asignado'}</small></div>{can(session.user, 'users.manage') && user.id !== session.user.id && <div className={styles.cardActions}><UserAccessForm disabled={busy} onSubmit={updateUserRoles(user)} roles={roles} user={user} /><button disabled={busy} onClick={() => updateUserStatus(user)} type="button">{user.status === 'ACTIVE' ? 'Inactivar' : 'Activar'}</button></div>}</article>) : <Empty />}</ResourceSection>}
         {area === 'clients' && !loading && <><ResourceSection title="Clientes" action={can(session.user, 'clients.manage') ? <ClientForm disabled={busy} onSubmit={createClient} /> : null}>{clients.length ? clients.map((client) => <article className={styles.card} key={client.id}><div><span className={styles.badge}>{client.isActive ? 'Activo' : 'Inactivo'}</span><h2>{client.name}</h2><p>{client.taxId || 'Sin identificación fiscal'} · {client.contactCount ?? 0} contactos</p></div><button onClick={() => void inspectClient(client)} type="button">Ver contactos</button></article>) : <Empty />}</ResourceSection>{selectedClient && <Detail title={`Contactos · ${selectedClient.name}`} onClose={() => setSelectedClient(null)}>{contacts.map((contact) => <p key={contact.id}><strong>{contact.name}</strong> · {contact.position || 'Sin cargo'} · {contact.email || contact.phone || 'Sin contacto'}</p>)}{can(session.user, 'clients.manage') && <ContactForm disabled={busy} onSubmit={createContact} />}</Detail>}</>}
         {area === 'projects' && !loading && <><ResourceSection title="Proyectos" action={can(session.user, 'projects.manage') ? <ProjectForm clients={clients} disabled={busy} onSubmit={createProject} /> : null}>{projects.length ? projects.map((project) => <article className={styles.card} key={project.id}><div><span className={styles.badge}>{project.status}</span><h2>{project.code} · {project.name}</h2><p>{project.clientName}</p></div><button onClick={() => void inspectProject(project)} type="button">Ver equipo</button></article>) : <Empty />}</ResourceSection>{selectedProject && <Detail title={`Equipo · ${selectedProject.name}`} onClose={() => setSelectedProject(null)}>{members.map((member) => <p key={member.userId}><strong>{member.displayName}</strong> · {member.role} · {member.email}</p>)}{can(session.user, 'projects.manage') && <MemberForm disabled={busy} onSubmit={addMember} users={users} />}</Detail>}</>}
-        {area === 'reports' && !loading && <ResourceSection title="Reportes de campo">{reports.length ? reports.map((report) => <article className={styles.report} key={report.id}><header><span className={styles.badge}>{report.status}</span><strong>{report.projectCode} · {report.reportDate}</strong></header><h2>{report.authorName}</h2><p>{report.summary}</p><small>{report.personnelCount} personas{report.incidentNotes ? ` · Incidente: ${report.incidentNotes}` : ''}</small>{report.status === 'SUBMITTED' && can(session.user, 'fieldReports.approve') && report.authorId !== session.user.id && <div className={styles.actions}><button disabled={busy} onClick={() => void run(() => api.request(`/field-reports/${report.id}/approve`, { method: 'POST' }), 'Reporte aprobado.')} type="button">Aprobar</button><button className={styles.danger} disabled={busy} onClick={() => window.confirm('¿Rechazar este reporte?') && void run(() => api.request(`/field-reports/${report.id}/reject`, { method: 'POST' }), 'Reporte rechazado.')} type="button">Rechazar</button></div>}</article>) : <Empty />}</ResourceSection>}
+        {area === 'reports' && !loading && <ResourceSection title="Reportes de campo">{reports.length ? reports.map((report) => <article className={styles.report} key={report.id}><header><span className={styles.badge}>{report.status}</span><strong>{report.projectCode} · {report.reportDate}</strong></header><h2>{report.authorName}</h2><p>{report.summary}</p><small>{report.personnelCount} personas{report.incidentNotes ? ` · Incidente: ${report.incidentNotes}` : ''}</small>{report.status === 'SUBMITTED' && can(session.user, 'fieldReports.approve') && report.authorId !== session.user.id && <div className={styles.actions}><button disabled={busy} onClick={() => void run(() => api.request(`/field-reports/${report.id}/approve`, { method: 'POST' }), 'Reporte aprobado.')} type="button">Aprobar</button><button className={styles.danger} disabled={busy} onClick={() => setConfirmation({ title: '¿Rechazar este reporte?', description: 'El reporte quedará rechazado y el autor deberá corregirlo antes de volver a enviarlo.', confirmLabel: 'Rechazar reporte', operation: () => api.request(`/field-reports/${report.id}/reject`, { method: 'POST' }), success: 'Reporte rechazado.' })} type="button">Rechazar</button></div>}</article>) : <Empty />}</ResourceSection>}
+        {confirmation && <ConfirmDialog busy={busy} confirmation={confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => void confirm()} />}
       </section>
     </main>
   )
@@ -156,8 +194,11 @@ function Dashboard({ session, onOpen }: Readonly<{ session: AuthSession; onOpen:
 function ResourceSection({ title, action, children }: Readonly<{ title: string; action?: React.ReactNode; children: React.ReactNode }>) { return <section className={styles.resource}><div className={styles.resourceHeading}><h2>{title}</h2>{action}</div><div className={styles.grid}>{children}</div></section> }
 function Detail({ title, onClose, children }: Readonly<{ title: string; onClose: () => void; children: React.ReactNode }>) { return <aside className={styles.detail} aria-label={title}><header><h2>{title}</h2><button onClick={onClose} type="button">Cerrar</button></header>{children}</aside> }
 function Empty() { return <p className={styles.empty}>No hay registros para mostrar.</p> }
-function UserForm({ disabled, onSubmit }: Readonly<{ disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }>) { return <details><summary>Nuevo usuario</summary><form className={styles.form} onSubmit={onSubmit}><label>Nombre<input name="displayName" required /></label><label>Correo<input name="email" required type="email" /></label><label>Contraseña inicial<input minLength={12} name="password" required type="password" /></label><button disabled={disabled} type="submit">Crear</button></form></details> }
+function UserForm({ disabled, onSubmit, roles }: Readonly<{ disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; roles: RoleItem[] }>) { return <details><summary>Nuevo usuario</summary><form className={styles.form} onSubmit={onSubmit}><label>Nombre<input name="displayName" required /></label><label>Correo<input name="email" required type="email" /></label><label>Contraseña inicial<input minLength={12} name="password" required type="password" /></label><RoleSelector roles={roles} /><button disabled={disabled} type="submit">Crear</button></form></details> }
+function UserAccessForm({ disabled, onSubmit, roles, user }: Readonly<{ disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; roles: RoleItem[]; user: UserItem }>) { if (!roles.length) return null; const assigned = new Set(user.roles.map((role) => role.id)); return <details className={styles.accessForm}><summary>Editar acceso</summary><form className={styles.form} onSubmit={onSubmit}><RoleSelector assigned={assigned} roles={roles} /><button disabled={disabled} type="submit">Guardar roles</button></form></details> }
+function RoleSelector({ assigned = new Set<string>(), roles }: Readonly<{ assigned?: Set<string>; roles: RoleItem[] }>) { return <fieldset className={styles.roleFieldset}><legend>Roles de acceso</legend>{roles.length ? <div className={styles.roleChoices}>{roles.map((role) => <label key={role.id}><input defaultChecked={assigned.has(role.id)} name="roleIds" type="checkbox" value={role.id} /> <span><strong>{role.name}</strong><small>{role.code}</small></span></label>)}</div> : <p className={styles.formHint}>No hay roles configurados para esta organización.</p>}</fieldset> }
 function ClientForm({ disabled, onSubmit }: Readonly<{ disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }>) { return <details><summary>Nuevo cliente</summary><form className={styles.form} onSubmit={onSubmit}><label>Nombre<input name="name" required /></label><label>Identificación fiscal<input name="taxId" /></label><button disabled={disabled} type="submit">Crear</button></form></details> }
 function ProjectForm({ clients, disabled, onSubmit }: Readonly<{ clients: ClientItem[]; disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }>) { return <details><summary>Nuevo proyecto</summary><form className={styles.form} onSubmit={onSubmit}><label>Código<input name="code" required /></label><label>Nombre<input name="name" required /></label>{clients.length ? <label>Cliente<select name="clientId" required><option value="">Seleccionar</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></label> : <label>ID del cliente<input name="clientId" pattern="[0-9a-fA-F-]{36}" placeholder="UUID del cliente" required /></label>}<label>Descripción<textarea name="description" /></label><button disabled={disabled} type="submit">Crear</button></form></details> }
 function ContactForm({ disabled, onSubmit }: Readonly<{ disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }>) { return <form className={styles.form} onSubmit={onSubmit}><h3>Agregar contacto</h3><label>Nombre<input name="name" required /></label><label>Correo<input name="email" type="email" /></label><label>Teléfono<input name="phone" /></label><label>Cargo<input name="position" /></label><button disabled={disabled} type="submit">Agregar</button></form> }
 function MemberForm({ users, disabled, onSubmit }: Readonly<{ users: UserItem[]; disabled: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }>) { return <form className={styles.form} onSubmit={onSubmit}><h3>Agregar miembro</h3>{users.length ? <label>Usuario<select name="userId" required><option value="">Seleccionar</option>{users.map((user) => <option key={user.id} value={user.id}>{user.displayName}</option>)}</select></label> : <label>ID del usuario<input name="userId" pattern="[0-9a-fA-F-]{36}" placeholder="UUID del usuario" required /></label>}<label>Rol<select name="role"><option value="WORKER">Trabajador</option><option value="SUPERVISOR">Supervisor</option><option value="VIEWER">Consulta</option></select></label><button disabled={disabled} type="submit">Agregar</button></form> }
+function ConfirmDialog({ busy, confirmation, onCancel, onConfirm }: Readonly<{ busy: boolean; confirmation: Confirmation; onCancel: () => void; onConfirm: () => void }>) { const cancelRef = useRef<HTMLButtonElement>(null); useEffect(() => { cancelRef.current?.focus() }, []); return <div className={styles.confirmOverlay}><section aria-describedby="confirmation-description" aria-labelledby="confirmation-title" aria-modal="true" className={styles.confirmDialog} role="alertdialog"><h2 id="confirmation-title">{confirmation.title}</h2><p id="confirmation-description">{confirmation.description}</p><div className={styles.confirmActions}><button disabled={busy} onClick={onCancel} ref={cancelRef} type="button">Cancelar</button><button className={styles.danger} disabled={busy} onClick={onConfirm} type="button">{confirmation.confirmLabel}</button></div></section></div> }

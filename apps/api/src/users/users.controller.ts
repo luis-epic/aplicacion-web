@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiConflictResponse, ApiNotFoundResponse, ApiOperation, 
 import { CurrentUser, RequirePermissions } from '../auth/auth.decorators'
 import { PageQueryDto, type PageResult } from '../common/page-query.dto'
 import { CreateUserDto, UpdateUserDto } from './users.dto'
-import { UsersService, type UserView } from './users.service'
+import { UsersService, type RoleView, type UserView } from './users.service'
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -14,14 +14,19 @@ export class UsersController {
 
   @Get()
   @RequirePermissions('users.read')
-  @ApiOperation({ summary: 'Lista usuarios con paginación' })
-  list(@Query() query: PageQueryDto): Promise<PageResult<UserView>> { return this.users.list(query) }
+  @ApiOperation({ summary: 'Lista usuarios de la organización activa con paginación' })
+  list(@Query() query: PageQueryDto, @CurrentUser() actor: SessionUser): Promise<PageResult<UserView>> { return this.users.list(query, actor) }
+
+  @Get('roles')
+  @RequirePermissions('users.manage')
+  @ApiOperation({ summary: 'Lista los roles asignables de la organización activa' })
+  listRoles(@CurrentUser() actor: SessionUser): Promise<RoleView[]> { return this.users.listRoles(actor) }
 
   @Get(':id')
   @RequirePermissions('users.read')
-  @ApiOperation({ summary: 'Obtiene un usuario' })
+  @ApiOperation({ summary: 'Obtiene un usuario de la organización activa' })
   @ApiNotFoundResponse({ description: 'Usuario no encontrado.' })
-  get(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string): Promise<UserView> { return this.users.get(id) }
+  get(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @CurrentUser() actor: SessionUser): Promise<UserView> { return this.users.get(id, actor) }
 
   @Post()
   @RequirePermissions('users.manage')

@@ -62,9 +62,16 @@ Compruebe autenticación, proyectos, publicaciones, tareas y reportes; compare c
 
 ## Simulacro aislado
 
-Nunca ensaye sobre la base activa. Restaure en un host, volumen y credenciales temporales sin acceso de usuarios; ejecute allí `pg_restore --list`, la restauración y validaciones funcionales. Inicie el cronómetro antes de obtener/verificar el backup y deténgalo sólo después de validar readiness y los flujos. Calcule el RPO como diferencia entre la marca de tiempo del último dato esperado y el corte del incidente simulado; calcule el RTO como duración total hasta declarar el servicio recuperable. Ambos deben quedar dentro de 24 h/4 h o de los objetivos formalmente aprobados.
+Nunca ensaye sobre la base activa. El script `scripts/restore-drill-postgres.ps1` crea PostgreSQL temporal sin red ni puertos publicados, valida checksum y catálogo, restaura transaccionalmente, comprueba readiness, tablas y migraciones, y elimina el contenedor y el volumen incluso ante error:
 
-Complete `docs/templates/restore-drill.md` con identificador del dump, SHA-256, ubicación off-host, versión PostgreSQL, conteos antes/después, migraciones, pruebas funcionales, RPO/RTO observados y firmas. Destruya los datos temporales de forma segura al finalizar. El acta del simulacro es evidencia del RPO/RTO; un comando exitoso sin validación de datos no lo es.
+```powershell
+pwsh -NoProfile -File scripts/restore-drill-postgres.ps1 `
+  -BackupPath D:\opeconca-backups\opeconca-postgres-YYYYMMDDTHHMMSSZ.dump
+```
+
+El script no se conecta al Compose activo, no inicia API/web/PWA y no sustituye una restauración desde la copia externa. Inicie el cronómetro antes de obtener/verificar el backup y deténgalo sólo después de validar readiness y los flujos que formen parte del objetivo. Calcule el RPO como diferencia entre la marca de tiempo del último dato esperado y el corte del incidente simulado; la marca de tiempo del nombre del dump sólo es una cota local. Calcule el RTO como duración total hasta declarar el servicio recuperable. Ambos deben quedar dentro de 24 h/4 h o de los objetivos formalmente aprobados.
+
+Complete `docs/templates/restore-drill.md` con identificador del dump, SHA-256, ámbito local/externo, ubicación off-host, versión PostgreSQL, conteos antes/después, migraciones, pruebas funcionales, RPO/RTO observados y firmas. Destruya los datos temporales de forma segura al finalizar. El acta del simulacro es evidencia del RPO/RTO; un comando exitoso sin validación de datos no lo es.
 
 ## Fallos
 

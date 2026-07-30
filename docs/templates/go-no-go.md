@@ -28,9 +28,11 @@ Estados permitidos: **GO**, **NO-GO**, **VALIDADO_LOCAL**, **PENDIENTE_EXTERNO**
 | Calidad, sistema, cobertura y carga | CI/local |  |  |  |
 | Secretos, vulnerabilidades, SBOM e integridad de artefactos | CI |  |  |  |
 | Staging representativo con los digests aprobados | Local/externo |  |  |  |
-| TLS/DNS/edge y observabilidad externos | Externo |  |  |  |
-| Secret manager y rotación operativa | Externo |  |  |  |
-| Backup cifrado off-host y restore dentro de RPO/RTO | Externo |  |  |  |
+| DNS, TLS público y edge/ingress externos | Externo |  |  |  |
+| Logs, métricas, trazas y alertas en backend externo | Externo |  |  |  |
+| Secret manager externo y rotación operativa | Externo |  |  |  |
+| Backup cifrado off-host, retención y restauración ensayada | Externo |  |  |  |
+| PITR/WAL y RPO/RTO aprobados, cuando aplique | Externo |  |  |  |
 | Piloto de dispositivos | Piloto real |  |  |  |
 | Plan de migración y rollback ensayado | Local/externo |  |  |  |
 
@@ -54,6 +56,7 @@ Esta guía no representa un contrato, un precio aprobado ni una aprobación del 
 | Modelo de precio o decisión comercial a validar |  |  |  |
 | Canal de soporte, severidades y escalamiento definidos |  |  |  |
 | Política de datos y dispositivos aceptada |  |  |  |
+| Resultado real del piloto: CONTINUAR / ITERAR / DETENER |  |  |  |
 | Incidencias bloqueantes del piloto cerradas |  |  |  |
 
 ## Métricas de resultado del piloto

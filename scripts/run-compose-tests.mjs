@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -17,6 +17,8 @@ const portalPort = process.env.TEST_PORTAL_PORT ?? '3300'
 const fieldPort = process.env.TEST_FIELD_PORT ?? '5273'
 const adminEmail = process.env.E2E_ADMIN_EMAIL ?? 'release-admin@opeconca.invalid'
 const adminPassword = process.env.E2E_ADMIN_PASSWORD ?? `${randomBytes(24).toString('base64url')}aA1!`
+const testPublicationPublisherRoleId = randomUUID()
+const testPublicationPublisherRoleCode = `TEST_PUBLICATION_PUBLISHER_${testPublicationPublisherRoleId.replaceAll('-', '')}`
 const generated = {
   POSTGRES_DB: 'opeconca_test',
   POSTGRES_USER: 'opeconca_test',
@@ -40,6 +42,7 @@ const childEnvironment = {
   FIELD_BASE_URL: `http://localhost:${fieldPort}`,
   E2E_ADMIN_EMAIL: adminEmail,
   E2E_ADMIN_PASSWORD: adminPassword,
+  TEST_PUBLICATION_PUBLISHER_ROLE_ID: testPublicationPublisherRoleId,
   COMPOSE_PROGRESS: 'quiet',
 }
 const pnpmCli = resolve(root, 'node_modules/pnpm/bin/pnpm.cjs')
@@ -85,6 +88,27 @@ try {
   writeFileSync(envFile, `${Object.entries(generated).map(([key, value]) => `${key}=${value}`).join('\n')}\n`, { mode: 0o600 })
   const buildArguments = process.env.TEST_SKIP_BUILD === 'true' ? [] : ['--build']
   run(docker, [...compose, 'up', ...buildArguments, '--wait', '--wait-timeout', '420'])
+  run(docker, [
+    ...compose,
+    'exec', '-T', '-e', `PGPASSWORD=${generated.POSTGRES_PASSWORD}`,
+    'postgres', 'psql', '--set=ON_ERROR_STOP=1', `--username=${generated.POSTGRES_USER}`, `--dbname=${generated.POSTGRES_DB}`,
+    '--command', `
+      INSERT INTO "Role" ("id", "organizationId", "code", "name", "description")
+      VALUES ('${testPublicationPublisherRoleId}', '00000000-0000-4000-8000-000000000000', '${testPublicationPublisherRoleCode}', 'Publicador de prueba de mínimo privilegio', 'Fixture efímero de integración.')
+      ON CONFLICT ("id") DO UPDATE SET
+        "code" = EXCLUDED."code",
+        "name" = EXCLUDED."name",
+        "description" = EXCLUDED."description";
+      INSERT INTO "RolePermission" ("roleId", "permissionId")
+      SELECT role."id", permission."id"
+      FROM "Role" role
+      JOIN "Permission" permission
+        ON permission."organizationId" = role."organizationId"
+       AND permission."code" = 'publications.publish'
+      WHERE role."id" = '${testPublicationPublisherRoleId}'
+      ON CONFLICT ("roleId", "permissionId") DO NOTHING;
+    `,
+  ])
   for (const args of steps[mode]) run(process.execPath, [pnpmCli, ...args])
 } catch (error) {
   executionError = error

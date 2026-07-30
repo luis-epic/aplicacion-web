@@ -6,7 +6,7 @@ const portalBaseUrl = process.env.PORTAL_BASE_URL ?? 'http://localhost:3300'
 const fieldBaseUrl = process.env.FIELD_BASE_URL ?? 'http://localhost:5273'
 const adminEmail = process.env.E2E_ADMIN_EMAIL
 const adminPassword = process.env.E2E_ADMIN_PASSWORD
-const publicationPublisherRoleId = '00000000-0000-4000-8000-000000000002'
+const publicationPublisherRoleId = process.env.TEST_PUBLICATION_PUBLISHER_ROLE_ID ?? ''
 
 interface SessionResponse {
   accessToken: string
@@ -182,6 +182,46 @@ describe('API MVP integration', () => {
       body: JSON.stringify({}),
     }, limitedSession.accessToken)).status).toBe(403)
 
+    const draftPublication = await json<Entity>(await request('/publications', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `Borrador ${projectCode}`,
+        slug: `borrador-${randomUUID()}`,
+        summary: 'Debe permanecer inaccesible para el publicador mínimo.',
+        content: 'Contenido de borrador para validar que la excepción editorial no expone borradores.',
+        type: 'DAILY',
+        category: 'Operaciones',
+      }),
+    }, session.accessToken), 201)
+    const scheduledPublication = await json<Entity>(await request('/publications', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `Programada ${projectCode}`,
+        slug: `programada-${randomUUID()}`,
+        summary: 'Debe poder consultarse mientras está programada.',
+        content: 'Contenido programado para validar la excepción editorial de revisión.',
+        type: 'DAILY',
+        category: 'Operaciones',
+      }),
+    }, session.accessToken), 201)
+    await json(await request(`/publications/${scheduledPublication.id}/submit`, {
+      method: 'POST',
+    }, session.accessToken), 200)
+    const archivedPublication = await json<Entity>(await request('/publications', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `Archivada ${projectCode}`,
+        slug: `archivada-${randomUUID()}`,
+        summary: 'Debe permanecer inaccesible para el publicador mínimo.',
+        content: 'Contenido archivado para validar que la excepción editorial no expone archivos.',
+        type: 'DAILY',
+        category: 'Operaciones',
+      }),
+    }, session.accessToken), 201)
+    await json(await request(`/publications/${archivedPublication.id}/archive`, {
+      method: 'POST',
+    }, session.accessToken), 200)
+
     const publisherEmail = `publisher-${randomUUID()}@opeconca.invalid`
     const publisherPassword = `${randomUUID()}pP1!`
     await json<Entity>(await request('/users', {
@@ -197,22 +237,46 @@ describe('API MVP integration', () => {
       method: 'POST',
       body: JSON.stringify({ email: publisherEmail, password: publisherPassword }),
     }), 200)
-    expect(publisherSession.user.permissions).toHaveLength(6)
-    expect(publisherSession.user.permissions).toEqual(expect.arrayContaining([
-      'publications.read',
-      'publications.create',
-      'publications.manage',
-      'publications.publish',
-      'tasks.read',
-      'tasks.create',
-    ]))
-    await json<Page<Entity>>(await request('/publications/feed', {}, publisherSession.accessToken), 200)
+    expect(publisherSession.user.permissions).toEqual(['publications.publish'])
+
     await json<Page<Entity>>(await request('/publications/review-queue', {}, publisherSession.accessToken), 200)
     await json<Entity>(await request(`/publications/${publication.id}`, {}, publisherSession.accessToken), 200)
-    await json<Entity>(await request(`/publications/${publication.id}/publish`, {
+    expect((await request(`/publications/${draftPublication.id}`, {}, publisherSession.accessToken)).status).toBe(403)
+    expect((await request(`/publications/${archivedPublication.id}`, {}, publisherSession.accessToken)).status).toBe(403)
+    expect((await request('/publications/feed', {}, publisherSession.accessToken)).status).toBe(403)
+    expect((await request('/publications', {}, publisherSession.accessToken)).status).toBe(403)
+    expect((await request('/publications', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `Creación denegada ${projectCode}`,
+        slug: `creacion-denegada-${randomUUID()}`,
+        summary: 'La identidad sólo puede publicar contenido ya enviado a revisión.',
+        content: 'La creación no debe estar disponible para el rol de publicación mínimo.',
+        type: 'DAILY',
+        category: 'Operaciones',
+      }),
+    }, publisherSession.accessToken)).status).toBe(403)
+    expect((await request(`/publications/${draftPublication.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ summary: 'La edición debe estar denegada.' }),
+    }, publisherSession.accessToken)).status).toBe(403)
+    expect((await request(`/publications/${draftPublication.id}/archive`, {
+      method: 'POST',
+    }, publisherSession.accessToken)).status).toBe(403)
+
+    const published = await json<Entity & { status: string }>(await request(`/publications/${publication.id}/publish`, {
       method: 'POST',
       body: JSON.stringify({}),
     }, publisherSession.accessToken), 200)
+    expect(published.status).toBe('PUBLISHED')
+    expect((await request(`/publications/${publication.id}`, {}, publisherSession.accessToken)).status).toBe(403)
+
+    const scheduled = await json<Entity & { status: string }>(await request(`/publications/${scheduledPublication.id}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ scheduledAt: new Date(Date.now() + 3_600_000).toISOString() }),
+    }, publisherSession.accessToken), 200)
+    expect(scheduled.status).toBe('SCHEDULED')
+    await json<Entity>(await request(`/publications/${scheduledPublication.id}`, {}, publisherSession.accessToken), 200)
 
     const task = await json<Entity>(await request('/tasks', {
       method: 'POST',

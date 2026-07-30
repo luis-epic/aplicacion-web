@@ -4,6 +4,7 @@ import type { PermissionCode, SessionUser } from '@opeconca/contracts'
 import { createHash } from 'node:crypto'
 import { type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso } from '../common/prisma-errors'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import {
   AssignTaskDto,
@@ -157,6 +158,7 @@ export class TasksService {
   }
 
   async create(dto: CreateTaskDto, actor: SessionUser): Promise<WorkTaskView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     if (dto.assigneeId || dto.supervisorId) this.assertPermission(actor, 'tasks.assign')
     const fingerprint = this.taskFingerprint(dto)
     const prior = await this.prisma.workTask.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: taskInclude })
@@ -165,9 +167,16 @@ export class TasksService {
 
     try {
       const task = await this.prisma.$transaction(async (tx) => {
-        await this.validateProjectAndUsers(tx, dto.projectId ?? null, [actor.id, dto.assigneeId, dto.supervisorId])
+        await this.validateProjectAndUsers(
+          tx,
+          dto.projectId ?? null,
+          [actor.id, dto.assigneeId, dto.supervisorId],
+          true,
+          organizationId,
+        )
         const created = await tx.workTask.create({
           data: {
+            organizationId,
             title: dto.title.trim(),
             description: dto.description?.trim(),
             projectId: dto.projectId,
@@ -187,7 +196,7 @@ export class TasksService {
           projectId: dto.projectId ?? null,
           idempotencyKey: dto.idempotencyKey,
         })
-        return created
+        return this.getRecord(tx, created.id)
       })
       return this.toView(task)
     } catch (error) {
@@ -486,24 +495,29 @@ export class TasksService {
     projectId: string | null,
     candidateIds: Array<string | null | undefined>,
     requireActive = true,
+    organizationId?: string,
   ): Promise<void> {
     const userIds = [...new Set(candidateIds.filter((id): id is string => Boolean(id)))]
     if (userIds.length) {
       const users = await tx.user.count({
         where: {
           id: { in: userIds },
+          organizationId,
           status: requireActive ? UserStatus.ACTIVE : undefined,
         },
       })
       if (users !== userIds.length) {
         throw new NotFoundException(requireActive
-          ? 'Uno o más usuarios no existen o no están activos.'
-          : 'Uno o más usuarios no existen.')
+          ? 'Uno o más usuarios no existen, no están activos o no pertenecen a la organización.'
+          : 'Uno o más usuarios no existen o no pertenecen a la organización.')
       }
     }
     if (!projectId) return
 
-    const project = await tx.project.findUnique({ where: { id: projectId }, select: { id: true } })
+    const project = await tx.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true },
+    })
     if (!project) throw new NotFoundException('Proyecto no encontrado.')
     if (userIds.length) {
       const memberships = await tx.projectMember.count({ where: { projectId, userId: { in: userIds } } })

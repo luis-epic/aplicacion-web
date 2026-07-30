@@ -33,6 +33,7 @@ export const sessionUserSchema = z.object({
   id: z.uuid(),
   email: z.email(),
   displayName: z.string().min(1).max(120),
+  organizationId: z.uuid().nullable().optional(),
   roles: z.array(z.string().min(1)),
   permissions: z.array(permissionCodeSchema),
 })

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { SessionUser } from '@opeconca/contracts'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import { PageQueryDto, type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso, throwPrismaConflict } from '../common/prisma-errors'
@@ -63,10 +64,11 @@ export class ClientsService {
   }
 
   async create(dto: CreateClientDto, actor: SessionUser): Promise<ClientView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     try {
       const client = await this.prisma.$transaction(async (tx) => {
         const created = await tx.client.create({ data: {
-          name: dto.name.trim(), taxId: dto.taxId?.trim(), isActive: dto.isActive,
+          organizationId, name: dto.name.trim(), taxId: dto.taxId?.trim(), isActive: dto.isActive,
         } })
         await tx.auditLog.create({ data: { action: 'client.created', actorId: actor.id, entityId: created.id, entityType: 'Client' } })
         return created

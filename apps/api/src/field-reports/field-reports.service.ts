@@ -1,6 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, ReportStatus } from '@prisma/client'
 import type { SessionUser } from '@opeconca/contracts'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import { type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso, isoDate } from '../common/prisma-errors'
@@ -65,17 +66,22 @@ export class FieldReportsService {
   }
 
   async create(dto: CreateFieldReportDto, actor: SessionUser): Promise<FieldReportView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     const prior = await this.prisma.fieldReport.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: reportInclude })
     if (prior) return this.resolveIdempotency(prior, actor.id)
 
     try {
       const report = await this.prisma.$transaction(async (tx) => {
-        const project = await tx.project.findUnique({ where: { id: dto.projectId }, select: { id: true } })
+        const project = await tx.project.findFirst({
+          where: { id: dto.projectId, organizationId },
+          select: { id: true },
+        })
         if (!project) throw new NotFoundException('Proyecto no encontrado.')
         const membership = await tx.projectMember.findUnique({ where: { projectId_userId: { projectId: dto.projectId, userId: actor.id } } })
         if (!membership) throw new ForbiddenException('Debes pertenecer al proyecto para crear reportes.')
         const created = await tx.fieldReport.create({
           data: {
+            organizationId,
             projectId: dto.projectId,
             authorId: actor.id,
             reportDate: this.reportDate(dto.reportDate),
@@ -90,7 +96,7 @@ export class FieldReportsService {
           include: reportInclude,
         })
         await tx.auditLog.create({ data: { action: 'fieldReport.created', actorId: actor.id, entityId: created.id, entityType: 'FieldReport', metadata: { projectId: dto.projectId, idempotencyKey: dto.idempotencyKey } } })
-        return created
+        return this.getRecord(tx, created.id)
       })
       return this.toView(report)
     } catch (error) {

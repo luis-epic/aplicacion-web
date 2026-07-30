@@ -55,6 +55,7 @@ export function toSessionUser(user: UserWithAccess): SessionUser {
     id: user.id,
     email: user.email,
     displayName: user.displayName,
+    organizationId: user.organizationId,
     roles,
     permissions: [...permissions],
   }

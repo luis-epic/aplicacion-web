@@ -26,6 +26,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso } from '../common/prisma-errors'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import {
   CreatePublicationDto,
@@ -260,14 +261,16 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async create(dto: CreatePublicationDto, actor: SessionUser): Promise<PublicationView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     const scheduledAt = this.date(dto.scheduledAt)
     const expiresAt = this.date(dto.expiresAt)
     this.assertDates(scheduledAt, expiresAt)
     try {
       const publication = await this.prisma.$transaction(async (tx) => {
-        await this.assertAudienceReferences(tx, dto.audience, dto.projectId ?? null, dto.audienceRoleCode ?? null)
+        await this.assertAudienceReferences(tx, organizationId, dto.audience, dto.projectId ?? null, dto.audienceRoleCode ?? null)
         const created = await tx.publication.create({
           data: {
+            organizationId,
             title: dto.title.trim(),
             slug: dto.slug.trim(),
             summary: dto.summary.trim(),
@@ -286,7 +289,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
           include: publicationInclude,
         })
         await this.audit(tx, 'publication.created', created.id, actor.id, { slug: created.slug })
-        return created
+        return this.getRecord(tx, created.id)
       })
       return this.toView(publication)
     } catch (error) {
@@ -312,7 +315,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
         if (current.status === PublicationStatus.SCHEDULED && !scheduledAt) {
           throw new BadRequestException('Una publicación programada debe conservar una fecha de programación futura.')
         }
-        await this.assertAudienceReferences(tx, audience, projectId, roleCode)
+        await this.assertAudienceReferences(tx, current.organizationId, audience, projectId, roleCode)
         this.assertDates(scheduledAt, expiresAt)
         const result = await tx.publication.updateMany({
           where: { id, status: current.status },
@@ -474,6 +477,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     actor: SessionUser,
     retryOnConflict = true,
   ): Promise<GeneratedTaskView[]> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     if (
       dto.tasks.some((task) => task.assigneeId || task.supervisorId) &&
       !actor.permissions.includes('tasks.assign')
@@ -483,6 +487,9 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const publication = await this.getRecord(tx, id)
+        if (publication.organizationId !== organizationId) {
+          throw new ForbiddenException('La publicación no pertenece a tu organización.')
+        }
         await this.assertCanGenerateTasks(publication, actor, tx)
 
         const idempotencyKeys = dto.tasks.map((task) => task.idempotencyKey)
@@ -508,7 +515,9 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
 
         const projectIds = [...new Set(pendingTasks.map(({ projectId }) => projectId).filter((value): value is string => Boolean(value)))]
         if (projectIds.length > 0) {
-          const count = await tx.project.count({ where: { id: { in: projectIds } } })
+          const count = await tx.project.count({
+            where: { id: { in: projectIds }, organizationId: publication.organizationId },
+          })
           if (count !== projectIds.length) throw new NotFoundException('Uno o más proyectos de las tareas no existen.')
         }
 
@@ -517,7 +526,11 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
           ...pendingTasks.flatMap(({ task }) => [task.assigneeId, task.supervisorId]),
         ].filter((value): value is string => Boolean(value)))]
         const activeUserCount = await tx.user.count({
-          where: { id: { in: userIds }, status: UserStatus.ACTIVE },
+          where: {
+            id: { in: userIds },
+            organizationId: publication.organizationId,
+            status: UserStatus.ACTIVE,
+          },
         })
         if (activeUserCount !== userIds.length) {
           throw new NotFoundException('Uno o más usuarios asignados no existen o no están activos.')
@@ -567,6 +580,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
             continue
           }
           const created = await tx.workTask.create({ data: {
+            organizationId: publication.organizationId,
             projectId,
             title: task.title.trim(),
             description: task.description?.trim(),
@@ -770,6 +784,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
 
   private async assertAudienceReferences(
     tx: DatabaseClient,
+    organizationId: string,
     audience: PublicationAudience,
     projectId: string | null,
     roleCode: string | null,
@@ -780,12 +795,18 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     }
     if (audience === PublicationAudience.PROJECT) {
       if (!projectId || roleCode?.trim()) throw new BadRequestException('La audiencia PROJECT requiere sólo projectId.')
-      const project = await tx.project.findUnique({ where: { id: projectId }, select: { id: true } })
+      const project = await tx.project.findFirst({
+        where: { id: projectId, organizationId },
+        select: { id: true },
+      })
       if (!project) throw new NotFoundException('Proyecto de audiencia no encontrado.')
       return
     }
     if (!roleCode?.trim() || projectId) throw new BadRequestException('La audiencia ROLE requiere sólo audienceRoleCode.')
-    const role = await tx.role.findUnique({ where: { code: roleCode.trim() }, select: { id: true } })
+    const role = await tx.role.findUnique({
+      where: { organizationId_code: { organizationId, code: roleCode.trim() } },
+      select: { id: true },
+    })
     if (!role) throw new NotFoundException('Rol de audiencia no encontrado.')
   }
 

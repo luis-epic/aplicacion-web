@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma, ProjectMemberRole, ProjectStatus } from '@prisma/client'
 import type { SessionUser } from '@opeconca/contracts'
+import { requireActiveOrganizationId } from '../common/organization-context'
 import { PrismaService } from '../database/prisma.service'
 import { PageQueryDto, type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso, throwPrismaConflict } from '../common/prisma-errors'
@@ -61,18 +62,24 @@ export class ProjectsService {
   }
 
   async create(dto: CreateProjectDto, actor: SessionUser): Promise<ProjectView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     this.assertDateRange(dto.startsAt, dto.endsAt)
     try {
       const project = await this.prisma.$transaction(async (tx) => {
-        await this.assertClient(tx, dto.clientId)
+        const client = await tx.client.findFirst({
+          where: { id: dto.clientId, organizationId },
+          select: { id: true },
+        })
+        if (!client) throw new NotFoundException('Cliente no encontrado.')
         const created = await tx.project.create({ data: {
+          organizationId,
           code: dto.code.trim(), clientId: dto.clientId, name: dto.name.trim(),
           description: dto.description?.trim(), status: dto.status,
           startsAt: dto.startsAt ? new Date(dto.startsAt) : undefined,
           endsAt: dto.endsAt ? new Date(dto.endsAt) : undefined,
         }, include: projectInclude })
         await tx.auditLog.create({ data: { action: 'project.created', actorId: actor.id, entityId: created.id, entityType: 'Project', metadata: { clientId: dto.clientId } } })
-        return created
+        return tx.project.findUniqueOrThrow({ where: { id: created.id }, include: projectInclude })
       })
       return this.toView(project)
     } catch (error) {

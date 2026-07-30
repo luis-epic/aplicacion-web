@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true })
 
 const prisma = new PrismaClient()
+const LEGACY_ORGANIZATION_ID = '00000000-0000-4000-8000-000000000000'
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim()
@@ -26,7 +27,9 @@ async function bootstrapAdmin(): Promise<void> {
 
   const result = await prisma.$transaction(async (transaction) => {
     await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`admin-bootstrap:${email}`}, 0))`
-    const adminRole = await transaction.role.findUnique({ where: { code: 'ADMIN' } })
+    const adminRole = await transaction.role.findUnique({
+      where: { organizationId_code: { organizationId: LEGACY_ORGANIZATION_ID, code: 'ADMIN' } },
+    })
     if (!adminRole) {
       throw new Error('El rol ADMIN no existe. Ejecuta prisma migrate deploy antes del bootstrap.')
     }
@@ -41,11 +44,16 @@ async function bootstrapAdmin(): Promise<void> {
         type: argon2id,
       })
       admin = await transaction.user.create({
-        data: { displayName, email, passwordHash, status: UserStatus.ACTIVE },
+        data: { displayName, email, passwordHash, organizationId: LEGACY_ORGANIZATION_ID, status: UserStatus.ACTIVE },
       })
       created = true
     } else if (admin.status !== UserStatus.ACTIVE) {
       throw new Error('El usuario de bootstrap existe pero está inactivo; requiere recuperación administrativa.')
+    } else if (!admin.organizationId) {
+      admin = await transaction.user.update({
+        where: { id: admin.id },
+        data: { organizationId: LEGACY_ORGANIZATION_ID },
+      })
     }
 
     const existingGrant = await transaction.userRole.findUnique({

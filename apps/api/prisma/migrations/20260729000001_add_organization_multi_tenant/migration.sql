@@ -10,6 +10,9 @@ CREATE TABLE "Organization" (
     CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
 );
 
+INSERT INTO "Organization" ("id", "code", "name", "isActive", "createdAt", "updatedAt")
+VALUES ('00000000-0000-4000-8000-000000000000', 'LEGACY', 'Organización heredada', true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
 CREATE TABLE "OrganizationSite" (
     "id" UUID NOT NULL,
     "organizationId" UUID NOT NULL,
@@ -53,7 +56,6 @@ CREATE UNIQUE INDEX "Organization_taxId_key" ON "Organization"("taxId");
 CREATE INDEX "Organization_code_idx" ON "Organization"("code");
 CREATE INDEX "Organization_taxId_idx" ON "Organization"("taxId");
 
-CREATE UNIQUE INDEX "OrganizationSite_code_key" ON "OrganizationSite"("code");
 CREATE INDEX "OrganizationSite_organizationId_code_idx" ON "OrganizationSite"("organizationId", "code");
 CREATE INDEX "OrganizationSite_organizationId_isPrimary_idx" ON "OrganizationSite"("organizationId", "isPrimary");
 
@@ -74,6 +76,7 @@ ALTER TABLE "User" ADD CONSTRAINT "User_organizationId_fkey" FOREIGN KEY ("organ
 ALTER TABLE "User" ADD CONSTRAINT "User_siteId_fkey" FOREIGN KEY ("siteId") REFERENCES "OrganizationSite"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 CREATE INDEX "User_organizationId_idx" ON "User"("organizationId");
 CREATE INDEX "User_siteId_idx" ON "User"("siteId");
+UPDATE "User" SET "organizationId" = '00000000-0000-4000-8000-000000000000' WHERE "organizationId" IS NULL;
 
 -- AddOrganizationFieldsToRole
 ALTER TABLE "Role" ADD COLUMN "organizationId" UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000000';
@@ -99,6 +102,8 @@ ALTER TABLE "Project" ADD CONSTRAINT "Project_organizationId_fkey" FOREIGN KEY (
 DROP INDEX "Project_code_key";
 CREATE UNIQUE INDEX "Project_organizationId_code_key" ON "Project"("organizationId", "code");
 CREATE INDEX "Project_organizationId_clientId_status_idx" ON "Project"("organizationId", "clientId", "status");
+ALTER TABLE "Project" ADD COLUMN "organizationSiteId" UUID;
+ALTER TABLE "Project" ADD CONSTRAINT "Project_organizationSiteId_fkey" FOREIGN KEY ("organizationSiteId") REFERENCES "OrganizationSite"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddOrganizationFieldsToFieldReport
 ALTER TABLE "FieldReport" ADD COLUMN "organizationId" UUID NOT NULL DEFAULT '00000000-0000-4000-8000-000000000000';
@@ -126,6 +131,19 @@ ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_organizationId_fkey" FOREIGN KEY
 CREATE INDEX "AuditLog_organizationId_entityType_entityId_idx" ON "AuditLog"("organizationId", "entityType", "entityId");
 
 -- AddConcreteOrderModel
+ALTER TABLE "Role" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "Permission" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "Client" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "Project" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "FieldReport" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "Publication" ALTER COLUMN "organizationId" DROP DEFAULT;
+ALTER TABLE "WorkTask" ALTER COLUMN "organizationId" DROP DEFAULT;
+
+CREATE TYPE "ConcreteOrderStatus" AS ENUM (
+    'PENDING', 'CONFIRMED', 'PRODUCING', 'LOADED', 'IN_TRANSIT',
+    'AT_SITE', 'DISCHARGING', 'COMPLETED', 'CANCELLED'
+);
+
 CREATE TABLE "ConcreteOrder" (
     "id" UUID NOT NULL,
     "organizationId" UUID NOT NULL,
@@ -135,7 +153,7 @@ CREATE TABLE "ConcreteOrder" (
     "mixDesignCode" VARCHAR(60) NOT NULL,
     "volumeM3" DECIMAL NOT NULL,
     "requiredAt" TIMESTAMP(3) NOT NULL,
-    "status" VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    "status" "ConcreteOrderStatus" NOT NULL DEFAULT 'PENDING',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "ConcreteOrder_pkey" PRIMARY KEY ("id")

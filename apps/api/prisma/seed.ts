@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true })
 
 const prisma = new PrismaClient()
+const LEGACY_ORGANIZATION_ID = '00000000-0000-4000-8000-000000000000'
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim()
@@ -30,7 +31,9 @@ async function seed(): Promise<void> {
   })
 
   await prisma.$transaction(async (transaction) => {
-    const adminRole = await transaction.role.findUnique({ where: { code: 'ADMIN' } })
+    const adminRole = await transaction.role.findUnique({
+      where: { organizationId_code: { organizationId: LEGACY_ORGANIZATION_ID, code: 'ADMIN' } },
+    })
     if (!adminRole) {
       throw new Error('El rol ADMIN no existe. Ejecuta prisma migrate deploy antes del seed.')
     }
@@ -48,12 +51,13 @@ async function seed(): Promise<void> {
             data: {
               displayName,
               passwordHash,
+              organizationId: existing.organizationId ?? LEGACY_ORGANIZATION_ID,
               status: UserStatus.ACTIVE,
               tokenVersion: { increment: 1 },
             },
           })
       : await transaction.user.create({
-          data: { displayName, email, passwordHash },
+          data: { displayName, email, passwordHash, organizationId: LEGACY_ORGANIZATION_ID },
         })
 
     if (!bootstrapOnly || !existing) {

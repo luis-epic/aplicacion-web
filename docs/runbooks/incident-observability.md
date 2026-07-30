@@ -31,6 +31,22 @@ Línea base hasta completar una prueba de carga y aprobar objetivos de negocio:
 
 Objetivo inicial: 99.9% de disponibilidad mensual para API y p95 menor de 1 segundo en rutas interactivas, excluyendo mantenimiento anunciado. Revise falsos positivos y ajuste sólo con evidencia.
 
+## Registro mínimo de incidente o solicitud piloto
+
+Abra un ticket o registro con estos campos antes de investigar. El registro puede vivir en la herramienta de soporte elegida; esta sección define el contenido mínimo.
+
+- ID de ticket y hora UTC de detección.
+- Entorno, release/SHA y alcance de red.
+- Severidad: P1, P2 o P3.
+- Impacto operativo y participantes afectados por alias, no por PII.
+- Request ID o trace ID, cuando exista.
+- Estado de `live`, `ready`, métricas y backup relevante.
+- Acciones de contención, responsable y hora UTC.
+- Decisión de rollback, si corresponde.
+- Resolución, causa, RPO/RTO observado y acciones preventivas con fecha.
+
+No adjunte tokens, cookies, contraseñas, dumps ni capturas con datos personales.
+
 ## Respuesta
 
 1. Registre hora, versión (`serviceVersion`), alcance y severidad. P1: pérdida/corrupción de datos, acceso indebido o indisponibilidad total; P2: degradación importante; P3: impacto limitado.
@@ -39,6 +55,19 @@ Objetivo inicial: 99.9% de disponibilidad mensual para API y p95 menor de 1 segu
 4. Contenga: retire tráfico, deshabilite la operación afectada o ejecute rollback. Para datos, siga `backup-restore.md`; para credenciales, `secret-rotation.md`.
 5. Valide recuperación con readiness y flujos de autenticación, publicaciones, tareas y reportes. Reabra tráfico gradualmente.
 6. Cierre con línea de tiempo, causa, impacto, datos afectados, RPO/RTO observado y acciones con responsable/fecha.
+
+## Escalamiento y soporte de piloto
+
+Antes de invitar participantes, el propietario debe completar y comunicar:
+
+| Rol | Responsable | Canal | Horario/cobertura | Objetivo de primera respuesta | Escala a |
+| --- | --- | --- | --- | --- | --- |
+| Punto de contacto piloto |  |  |  |  |  |
+| Responsable técnico |  |  |  |  |  |
+| Responsable de negocio |  |  |  |  |  |
+| Responsable de seguridad/datos |  |  |  |  |  |
+
+No se asume un SLA comercial hasta que negocio y el cliente piloto lo acuerden. Ante un P1, notifique de inmediato a los responsables definidos, preserve evidencia y aplique la contención indicada; ante P2/P3, registre prioridad, impacto y siguiente actualización acordada.
 
 ## Fallos de telemetría
 

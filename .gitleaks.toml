@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Placeholder no operativo documentado en .env.example"
+condition = "AND"
+paths = ['''(?:^|/)\.env\.example$''']
+regexTarget = "match"
+regexes = ['''ADMIN_PASSWORD=replace-with-at-least-(?:12|16)-characters''']

@@ -1,5 +1,4 @@
-import { permissionCodes, type PermissionCode as ContractPermissionCode } from '@opeconca/contracts'
-import { PermissionCode, PrismaClient, UserStatus } from '@prisma/client'
+import { PrismaClient, UserStatus } from '@prisma/client'
 import { argon2id, hash } from 'argon2'
 import { config } from 'dotenv'
 import { resolve } from 'node:path'
@@ -7,27 +6,6 @@ import { resolve } from 'node:path'
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true })
 
 const prisma = new PrismaClient()
-const databasePermissionByContract: Record<ContractPermissionCode, PermissionCode> = {
-  'users.read': PermissionCode.USERS_READ,
-  'users.manage': PermissionCode.USERS_MANAGE,
-  'clients.read': PermissionCode.CLIENTS_READ,
-  'clients.manage': PermissionCode.CLIENTS_MANAGE,
-  'projects.read': PermissionCode.PROJECTS_READ,
-  'projects.manage': PermissionCode.PROJECTS_MANAGE,
-  'fieldReports.create': PermissionCode.FIELD_REPORTS_CREATE,
-  'fieldReports.read': PermissionCode.FIELD_REPORTS_READ,
-  'fieldReports.approve': PermissionCode.FIELD_REPORTS_APPROVE,
-  'publications.read': PermissionCode.PUBLICATIONS_READ,
-  'publications.create': PermissionCode.PUBLICATIONS_CREATE,
-  'publications.manage': PermissionCode.PUBLICATIONS_MANAGE,
-  'publications.publish': PermissionCode.PUBLICATIONS_PUBLISH,
-  'tasks.read': PermissionCode.TASKS_READ,
-  'tasks.create': PermissionCode.TASKS_CREATE,
-  'tasks.manage': PermissionCode.TASKS_MANAGE,
-  'tasks.assign': PermissionCode.TASKS_ASSIGN,
-  'tasks.complete': PermissionCode.TASKS_COMPLETE,
-  'tasks.approve': PermissionCode.TASKS_APPROVE,
-}
 
 function requiredEnvironment(name: string): string {
   const value = process.env[name]?.trim()
@@ -52,31 +30,10 @@ async function seed(): Promise<void> {
   })
 
   await prisma.$transaction(async (transaction) => {
-    const permissions = []
-    for (const contractCode of permissionCodes) {
-      permissions.push(await transaction.permission.upsert({
-        where: { code: databasePermissionByContract[contractCode] },
-        update: {},
-        create: { code: databasePermissionByContract[contractCode] },
-      }))
+    const adminRole = await transaction.role.findUnique({ where: { code: 'ADMIN' } })
+    if (!adminRole) {
+      throw new Error('El rol ADMIN no existe. Ejecuta prisma migrate deploy antes del seed.')
     }
-
-    const adminRole = await transaction.role.upsert({
-      where: { code: 'ADMIN' },
-      update: { name: 'Administrador' },
-      create: {
-        code: 'ADMIN',
-        description: 'Acceso administrativo completo.',
-        name: 'Administrador',
-      },
-    })
-    await transaction.rolePermission.deleteMany({ where: { roleId: adminRole.id } })
-    await transaction.rolePermission.createMany({
-      data: permissions.map((permission) => ({
-        permissionId: permission.id,
-        roleId: adminRole.id,
-      })),
-    })
 
     let existing = await transaction.user.findUnique({ where: { email } })
     if (existing) {

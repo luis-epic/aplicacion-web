@@ -8,6 +8,7 @@ import { validateEnvironment } from './config/environment'
 import { DatabaseModule } from './database/database.module'
 import { FieldReportsModule } from './field-reports/field-reports.module'
 import { HealthController } from './health/health.controller'
+import { ObservabilityModule } from './observability/observability.module'
 import { ProjectsModule } from './projects/projects.module'
 import { PublicationsModule } from './publications/publications.module'
 import { TasksModule } from './tasks/tasks.module'
@@ -20,6 +21,7 @@ import { UsersModule } from './users/users.module'
       isGlobal: true,
       validate: validateEnvironment,
     }),
+    ObservabilityModule,
     ThrottlerModule.forRoot([{ limit: 60, ttl: 60_000 }]),
     DatabaseModule,
     AuthModule,

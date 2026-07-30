@@ -1,4 +1,4 @@
-import { createFieldReport, submitFieldReport } from './fieldApi'
+import { createFieldReport, isAuthenticationError, isRetryableApiError, submitFieldReport } from './fieldApi'
 import {
   enqueueReport,
   loadFieldReports,
@@ -9,11 +9,11 @@ import {
 } from './fieldReportStorage'
 import type { LocalFieldReport } from '../types/fieldReports'
 
-const MAX_ATTEMPTS = 5
+const MAX_ATTEMPTS = 6
 const BASE_BACKOFF_MS = 2_000
-const MAX_BACKOFF_MS = 60_000
+const MAX_BACKOFF_MS = 120_000
 
-let activeSync: Promise<void> | null = null
+const activeSync = new Map<string, Promise<void>>()
 
 function failureMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === 'TimeoutError') {
@@ -23,7 +23,8 @@ function failureMessage(error: unknown): string {
 }
 
 function nextBackoff(attempts: number): number {
-  return Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempts - 1), MAX_BACKOFF_MS)
+  const exponential = Math.min(BASE_BACKOFF_MS * 2 ** Math.max(0, attempts - 1), MAX_BACKOFF_MS)
+  return Math.round(exponential * (0.8 + Math.random() * 0.4))
 }
 
 async function runSync(ownerId: string, force: boolean): Promise<void> {
@@ -61,13 +62,16 @@ async function runSync(ownerId: string, force: boolean): Promise<void> {
       })
       await removeOutboxEntry(entry.localId)
     } catch (error) {
+      if (isAuthenticationError(error)) throw error
       const attempts = entry.attempts + 1
-      const terminal = attempts >= MAX_ATTEMPTS
+      const terminal = !isRetryableApiError(error) || attempts >= MAX_ATTEMPTS
       await saveFieldReport({
         ...report,
         syncState: terminal ? 'error' : 'pending',
         error: terminal
-          ? `${failureMessage(error)} Reintentos automáticos agotados.`
+          ? (attempts >= MAX_ATTEMPTS
+              ? `${failureMessage(error)} Reintentos automáticos agotados.`
+              : failureMessage(error))
           : failureMessage(error),
         updatedAt: new Date().toISOString(),
       })
@@ -85,12 +89,11 @@ async function runSync(ownerId: string, force: boolean): Promise<void> {
 }
 
 export function syncFieldReports(ownerId: string, force = false): Promise<void> {
-  if (!activeSync) {
-    activeSync = runSync(ownerId, force).finally(() => {
-      activeSync = null
-    })
-  }
-  return activeSync
+  const existing = activeSync.get(ownerId)
+  if (existing) return existing
+  const operation = runSync(ownerId, force).finally(() => activeSync.delete(ownerId))
+  activeSync.set(ownerId, operation)
+  return operation
 }
 
 export async function retryFailedReports(ownerId: string): Promise<void> {
@@ -103,4 +106,8 @@ export async function retryFailedReports(ownerId: string): Promise<void> {
     updatedAt: new Date().toISOString(),
   } satisfies LocalFieldReport)))
   await syncFieldReports(ownerId, true)
+}
+
+export function waitForFieldReportSync(ownerId: string): Promise<void> {
+  return activeSync.get(ownerId) ?? Promise.resolve()
 }

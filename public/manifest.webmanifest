@@ -2,7 +2,7 @@
   "id": "./",
   "name": "OPECONCA Campo — Operación en terreno",
   "short_name": "OPECONCA",
-  "description": "Planifica salidas, consulta lluvia y sismos, y completa listas operativas incluso sin conexión.",
+  "description": "Consulta Actualidad OPECONCA, gestiona tareas y reportes de campo, y conserva clima, lluvia y sismos incluso sin conexión.",
   "lang": "es",
   "start_url": "./#/inicio",
   "scope": "./",
@@ -34,24 +34,24 @@
   ],
   "shortcuts": [
     {
-      "name": "Nueva salida",
-      "short_name": "Nueva salida",
-      "description": "Prepara una nueva checklist operativa",
-      "url": "./#/inicio",
+      "name": "Actualidad OPECONCA",
+      "short_name": "Actualidad",
+      "description": "Abre el boletín corporativo",
+      "url": "./#/actualidad",
       "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     },
     {
-      "name": "Mi checklist",
-      "short_name": "Mi lista",
-      "description": "Consulta tu checklist actual",
-      "url": "./#/lista",
+      "name": "Mis tareas",
+      "short_name": "Tareas",
+      "description": "Abre el centro de trabajo",
+      "url": "./#/tareas",
       "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     },
     {
-      "name": "Rutinas",
-      "short_name": "Rutinas",
-      "description": "Abre tus rutinas guardadas",
-      "url": "./#/rutinas",
+      "name": "Nuevo reporte",
+      "short_name": "Reportes",
+      "description": "Crea un reporte de campo",
+      "url": "./#/reportes",
       "icons": [{ "src": "./icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     }
   ]

@@ -34,20 +34,6 @@ export interface UserOption {
   displayName: string
 }
 
-export interface ProjectMemberItem {
-  userId: string
-  email: string
-  displayName: string
-}
-
-export interface UserItem extends UserOption {
-  id: string
-  email: string
-  displayName: string
-  status: 'ACTIVE' | 'INACTIVE'
-  roles: Array<{ code: string; name: string }>
-}
-
 export interface ChecklistItemView {
   id: string
   taskId: string
@@ -218,17 +204,14 @@ function UserField({ label, name, users, defaultValue = '', required = false }: 
   defaultValue?: string
   required?: boolean
 }) {
-  return <label>{label}{users.length
-    ? <select defaultValue={defaultValue} name={name} required={required}><option value="">{required ? 'Seleccionar persona' : 'Sin asignar'}</option>{users.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.email}</option>)}</select>
-    : <input defaultValue={defaultValue} name={name} pattern={UUID_PATTERN} placeholder="UUID del usuario" required={required} />}
-  </label>
+  return <label>{label}<select defaultValue={defaultValue} name={name} required={required}><option value="">{users.length ? required ? 'Seleccionar persona' : 'Sin asignar' : 'No hay usuarios asignables'}</option>{users.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.email}</option>)}</select></label>
 }
 
 export function TasksWorkspace({ api, session }: { api: PortalApi; session: AuthSession }) {
   const managesTasks = can(session, 'tasks.manage')
   const [tasks, setTasks] = useState<WorkTaskView[]>([])
   const [projects, setProjects] = useState<ProjectItem[]>([])
-  const [users, setUsers] = useState<UserItem[]>([])
+  const [users, setUsers] = useState<UserOption[]>([])
   const [membersByProject, setMembersByProject] = useState<Record<string, UserOption[]>>({})
   const [createProjectId, setCreateProjectId] = useState('')
   const [selected, setSelected] = useState<WorkTaskView | null>(null)
@@ -300,21 +283,14 @@ export function TasksWorkspace({ api, session }: { api: PortalApi; session: Auth
   }, [loadTasks])
 
   const loadProjectMembers = useCallback(async (projectId: string): Promise<void> => {
-    if (!projectId || !canAssign || !canReadProjects) return
+    if (!projectId || !canAssign) return
     try {
-      const page = await api.request<PageResult<ProjectMemberItem>>(`/projects/${projectId}/members?page=1&pageSize=100`)
-      setMembersByProject((current) => ({
-        ...current,
-        [projectId]: page.items.map((member) => ({
-          id: member.userId,
-          displayName: member.displayName,
-          email: member.email,
-        })),
-      }))
+      const page = await api.request<PageResult<UserOption>>(`/tasks/assignment-candidates?projectId=${encodeURIComponent(projectId)}&page=1&pageSize=100`)
+      setMembersByProject((current) => ({ ...current, [projectId]: page.items }))
     } catch (nextError) {
       setError(errorMessage(nextError))
     }
-  }, [api, canAssign, canReadProjects])
+  }, [api, canAssign])
 
   const focusedTaskId = selected?.id
   useEffect(() => {
@@ -335,13 +311,13 @@ export function TasksWorkspace({ api, session }: { api: PortalApi; session: Auth
           canReadProjects
             ? api.request<PageResult<ProjectItem>>('/projects?page=1&pageSize=100')
             : Promise.resolve<PageResult<ProjectItem>>({ items: [], page: 1, pageSize: 100, total: 0 }),
-          canAssign && can(session, 'users.read')
-            ? api.request<PageResult<UserItem>>('/users?page=1&pageSize=100')
-            : Promise.resolve<PageResult<UserItem>>({ items: [], page: 1, pageSize: 100, total: 0 }),
+          canAssign
+            ? api.request<PageResult<UserOption>>('/tasks/assignment-candidates?page=1&pageSize=100')
+            : Promise.resolve<PageResult<UserOption>>({ items: [], page: 1, pageSize: 100, total: 0 }),
         ])
         if (active) {
           setProjects(projectPage.items)
-          setUsers(userPage.items.filter((user) => user.status === 'ACTIVE'))
+          setUsers(userPage.items)
         }
       } catch (nextError) {
         if (active) setError(errorMessage(nextError))
@@ -349,7 +325,7 @@ export function TasksWorkspace({ api, session }: { api: PortalApi; session: Auth
     }
     void loadReferences()
     return () => { active = false }
-  }, [api, canAssign, canReadProjects, session])
+  }, [api, canAssign, canReadProjects])
 
   const run = async (
     operation: () => Promise<unknown>,

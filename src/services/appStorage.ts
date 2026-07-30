@@ -1,3 +1,4 @@
+import { fieldStores, openFieldDatabase } from './fieldDatabase'
 import type {
   ActivityId,
   AppPreferences,
@@ -12,12 +13,7 @@ import type {
   TransportId,
 } from '../types/app'
 
-const DATABASE_NAME = 'salida-lista'
-const DATABASE_VERSION = 2
-const STORE_NAME = 'app-state'
-const FIELD_REPORT_STORE = 'field-reports'
-const OUTBOX_STORE = 'outbox'
-const SESSION_STORE = 'session-metadata'
+const STORE_NAME = fieldStores.appState
 const STATE_KEY = 'current'
 
 let storageWriteQueue: Promise<void> = Promise.resolve()
@@ -183,36 +179,7 @@ function isPersistedState(value: unknown): value is PersistedAppState {
 }
 
 function openDatabase(): Promise<IDBDatabase> {
-  if (!('indexedDB' in window)) {
-    return Promise.reject(new Error('Este navegador no admite almacenamiento IndexedDB.'))
-  }
-
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(DATABASE_NAME, DATABASE_VERSION)
-
-    request.onupgradeneeded = () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(STORE_NAME)) {
-        database.createObjectStore(STORE_NAME, { keyPath: 'key' })
-      }
-      if (!database.objectStoreNames.contains(FIELD_REPORT_STORE)) {
-        database.createObjectStore(FIELD_REPORT_STORE, { keyPath: 'localId' })
-      }
-      if (!database.objectStoreNames.contains(OUTBOX_STORE)) {
-        database.createObjectStore(OUTBOX_STORE, { keyPath: 'localId' })
-      }
-      if (!database.objectStoreNames.contains(SESSION_STORE)) {
-        database.createObjectStore(SESSION_STORE, { keyPath: 'key' })
-      }
-    }
-    request.onsuccess = () => {
-      const database = request.result
-      database.onversionchange = () => database.close()
-      resolve(database)
-    }
-    request.onerror = () => reject(new Error('No pudimos abrir el almacenamiento local.'))
-    request.onblocked = () => reject(new Error('El almacenamiento local está bloqueado por otra pestaña.'))
-  })
+  return openFieldDatabase()
 }
 
 export async function loadAppState(): Promise<PersistedAppState | null> {
@@ -252,11 +219,9 @@ export function saveAppState(state: PersistedAppState): Promise<void> {
 export function clearAppState(): Promise<void> {
   return enqueueStorageWrite(async () => {
     const database = await openDatabase()
-    const storeNames = Array.from(database.objectStoreNames)
-
     return new Promise((resolve, reject) => {
-      const transaction = database.transaction(storeNames, 'readwrite')
-      storeNames.forEach((storeName) => transaction.objectStore(storeName).clear())
+      const transaction = database.transaction(STORE_NAME, 'readwrite')
+      transaction.objectStore(STORE_NAME).clear()
       transaction.oncomplete = () => {
         database.close()
         resolve()

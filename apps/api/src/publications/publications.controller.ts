@@ -1,5 +1,5 @@
 import type { SessionUser } from '@opeconca/contracts'
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query, StreamableFile } from '@nestjs/common'
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -63,6 +63,20 @@ export class PublicationsController {
   @ApiOperation({ summary: 'Lista administrativa paginada y filtrada de publicaciones' })
   list(@Query() query: PublicationQueryDto): Promise<PageResult<PublicationView>> {
     return this.publications.list(query)
+  }
+
+  @Get(':id/cover')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('Content-Security-Policy', "default-src 'none'; sandbox")
+  @Header('X-Content-Type-Options', 'nosniff')
+  @ApiOperation({ summary: 'Entrega la portada aplicando la autorización de la publicación' })
+  @ApiForbiddenResponse({ description: 'La publicación no pertenece a la audiencia del usuario.' })
+  async cover(
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @CurrentUser() actor: SessionUser,
+  ): Promise<StreamableFile> {
+    const cover = await this.publications.cover(id, actor)
+    return new StreamableFile(cover.stream, { type: cover.contentType })
   }
 
   @Get(':id')

@@ -1,0 +1,110 @@
+# Entorno efímero y aislado para integración/E2E. Nunca usar en producción.
+name: opeconca-test
+
+services:
+  postgres:
+    image: postgres:17.5-alpine3.22
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api-migrate:
+    image: opeconca-test-api-migrate:test
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: migration
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: ${ADMIN_NAME}
+      ADMIN_SEED_MODE: bootstrap
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['sh', '-c', 'node node_modules/prisma/build/index.js migrate deploy && node node_modules/tsx/dist/cli.mjs prisma/seed.ts']
+    restart: 'no'
+
+  api:
+    image: opeconca-test-api:test
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.api
+      target: runtime
+    init: true
+    environment:
+      NODE_ENV: test
+      PORT: 4000
+      TRUST_PROXY_HOPS: 0
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL_SECONDS: 900
+      JWT_REFRESH_TTL_DAYS: 1
+      APP_URL: http://localhost:${TEST_PORTAL_PORT:-3300}
+      FIELD_APP_URL: http://localhost:${TEST_FIELD_PORT:-5273}
+      LOG_LEVEL: warn
+      SERVICE_VERSION: integration-test
+      METRICS_ENABLED: 'false'
+      PUBLICATION_MEDIA_ROOT: /app/media/publications
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:${TEST_API_PORT:-4400}:4000'
+    volumes:
+      - ${TEST_PUBLICATION_MEDIA_PATH}:/app/media/publications:ro
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  web:
+    image: opeconca-test-web:test
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.web
+      target: runtime
+    init: true
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000/api/v1
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${TEST_PORTAL_PORT:-3300}:3000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  field:
+    image: opeconca-test-field:test
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.field
+      target: runtime
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:${TEST_FIELD_PORT:-5273}:8080'
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8080/']
+      interval: 2s
+      timeout: 3s
+      retries: 30

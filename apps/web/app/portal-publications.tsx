@@ -14,7 +14,6 @@ type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'BLOCKED' | 'IN_REVIEW' | 'COMPLET
 type TaskPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'
 type TaskRecurrence = 'NONE' | 'DAILY' | 'WEEKLY' | 'MONTHLY'
 type ProjectStatus = 'DRAFT' | 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED'
-type UserStatus = 'ACTIVE' | 'INACTIVE'
 
 interface PageResponse<T> {
   items: T[]
@@ -102,16 +101,6 @@ interface ProjectResponse {
   members?: ProjectMemberResponse[]
 }
 
-interface UserResponse {
-  id: string
-  email: string
-  displayName: string
-  status: UserStatus
-  roles: Array<{ id: string; code: string; name: string }>
-  createdAt: string
-  updatedAt: string
-}
-
 interface UserOption {
   id: string
   email: string
@@ -167,6 +156,43 @@ const publicationStatuses: PublicationStatus[] = ['DRAFT', 'IN_REVIEW', 'SCHEDUL
 const publicationPriorities: PublicationPriority[] = ['NORMAL', 'IMPORTANT', 'URGENT']
 const taskPriorities: TaskPriority[] = ['LOW', 'NORMAL', 'HIGH', 'CRITICAL']
 const taskRecurrences: TaskRecurrence[] = ['NONE', 'DAILY', 'WEEKLY', 'MONTHLY']
+const corporateCoverPattern = /^\/media\/publications\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(?:avif|gif|jpe?g|png|webp)$/
+
+function CorporatePublicationCover({ api, className, publicationId, src }: {
+  api: PortalApi
+  className: string
+  publicationId: string
+  src: string
+}) {
+  const [failed, setFailed] = useState(false)
+  const [objectUrl, setObjectUrl] = useState<string | null>(null)
+  const valid = corporateCoverPattern.test(src)
+
+  useEffect(() => {
+    setFailed(false)
+    setObjectUrl(null)
+    if (!valid) return
+    let active = true
+    let generatedUrl: string | null = null
+    void api.requestBlob(`/publications/${encodeURIComponent(publicationId)}/cover`)
+      .then((blob) => {
+        generatedUrl = URL.createObjectURL(blob)
+        if (active) setObjectUrl(generatedUrl)
+        else URL.revokeObjectURL(generatedUrl)
+      })
+      .catch(() => { if (active) setFailed(true) })
+    return () => {
+      active = false
+      if (generatedUrl) URL.revokeObjectURL(generatedUrl)
+    }
+  }, [api, publicationId, src, valid])
+
+  if (!valid || failed || !objectUrl) {
+    const labelText = failed || !valid ? 'Portada no disponible' : 'Cargando portada'
+    return <div aria-label={labelText} className={`${className} ${styles.publicationsCoverFallback}`} role="img">OPECONCA</div>
+  }
+  return <img alt="" className={className} onError={() => setFailed(true)} src={objectUrl} />
+}
 
 const emptyEditor = (): PublicationEditor => ({
   title: '', slug: '', summary: '', content: '', coverImageUrl: '', type: 'DAILY', category: '',
@@ -220,7 +246,6 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
   const canCreateTasks = hasPermission(session, 'tasks.create')
   const canAssignTasks = hasPermission(session, 'tasks.assign')
   const canReadProjects = hasPermission(session, 'projects.read')
-  const canReadUsers = hasPermission(session, 'users.read')
 
   const [feed, setFeed] = useState<PublicationResponse[]>([])
   const [workspaceItems, setWorkspaceItems] = useState<PublicationResponse[]>([])
@@ -228,7 +253,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
   const [acknowledgements, setAcknowledgements] = useState<AcknowledgementResponse[]>([])
   const [generatedTasks, setGeneratedTasks] = useState<GeneratedTaskResponse[]>([])
   const [projects, setProjects] = useState<ProjectResponse[]>([])
-  const [users, setUsers] = useState<UserResponse[]>([])
+  const [users, setUsers] = useState<UserOption[]>([])
   const [taskProjectUsers, setTaskProjectUsers] = useState<UserOption[]>([])
   const [feedFilters, setFeedFilters] = useState<FeedFilters>({ search: '', type: '', category: '', projectId: '' })
   const [workspaceFilters, setWorkspaceFilters] = useState<WorkspaceFilters>({ search: '', status: '', type: '', audience: '', priority: '' })
@@ -241,6 +266,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const workspaceRootRef = useRef<HTMLElement | null>(null)
   const detailRef = useRef<HTMLElement | null>(null)
   const lastPublicationActivator = useRef<HTMLButtonElement | null>(null)
 
@@ -271,13 +297,13 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
             ? requestWorkspaceItems('page=1&pageSize=50')
             : Promise.resolve([]),
           canReadProjects ? api.request<PageResponse<ProjectResponse>>('/projects?page=1&pageSize=100') : Promise.resolve(null),
-          canReadUsers ? api.request<PageResponse<UserResponse>>('/users?page=1&pageSize=100') : Promise.resolve(null),
+          canAssignTasks ? api.request<PageResponse<UserOption>>('/tasks/assignment-candidates?page=1&pageSize=100') : Promise.resolve(null),
         ])
         if (!active) return
         setFeed(feedPage?.items ?? [])
         setWorkspaceItems(workspacePage)
         setProjects(projectPage?.items ?? [])
-        setUsers(userPage?.items.filter((user) => user.status === 'ACTIVE') ?? [])
+        setUsers(userPage?.items ?? [])
       } catch (nextError) {
         if (active) setError(errorMessage(nextError))
       } finally {
@@ -286,25 +312,21 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
     }
     void loadInitial()
     return () => { active = false }
-  }, [api, canCreate, canManage, canPublish, canRead, canReadProjects, canReadUsers, requestWorkspaceItems])
+  }, [api, canAssignTasks, canCreate, canManage, canPublish, canRead, canReadProjects, requestWorkspaceItems])
 
   useEffect(() => {
     let active = true
-    if (!task.projectId || !canAssignTasks || !canReadProjects) {
+    if (!task.projectId || !canAssignTasks) {
       setTaskProjectUsers([])
       return () => { active = false }
     }
-    api.request<PageResponse<ProjectMemberResponse>>(`/projects/${task.projectId}/members?page=1&pageSize=100`)
+    api.request<PageResponse<UserOption>>(`/tasks/assignment-candidates?projectId=${encodeURIComponent(task.projectId)}&page=1&pageSize=100`)
       .then((page) => {
-        if (active) setTaskProjectUsers(page.items.map((member) => ({
-          id: member.userId,
-          displayName: member.displayName,
-          email: member.email,
-        })))
+        if (active) setTaskProjectUsers(page.items)
       })
       .catch((nextError: unknown) => { if (active) setError(errorMessage(nextError)) })
     return () => { active = false }
-  }, [api, canAssignTasks, canReadProjects, task.projectId])
+  }, [api, canAssignTasks, task.projectId])
 
   const clearNotices = () => { setError(''); setSuccess('') }
 
@@ -377,8 +399,12 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
   }, [selected])
 
   const closePublication = () => {
+    const activator = lastPublicationActivator.current
     setSelected(null)
-    window.requestAnimationFrame(() => lastPublicationActivator.current?.focus())
+    window.requestAnimationFrame(() => {
+      if (activator?.isConnected) activator.focus()
+      else workspaceRootRef.current?.focus()
+    })
   }
 
   const beginCreate = () => {
@@ -510,7 +536,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
   const secondaryFeed = feed.slice(1)
 
   return (
-    <main className={styles.publicationsWorkspace}>
+    <section aria-label="Actualidad corporativa" className={styles.publicationsWorkspace} ref={workspaceRootRef} tabIndex={-1}>
       <header className={styles.publicationsMasthead}>
         <div className={styles.publicationsMastheadRule} />
         <p className={styles.publicationsKicker}>OPECONCA · Comunicación interna</p>
@@ -541,7 +567,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
           </form>
           {!loading && lead ? <div className={styles.publicationsFrontPage}>
             <article className={styles.publicationsLeadStory}>
-              {lead.coverImageUrl && <img alt="" className={styles.publicationsCoverImage} src={lead.coverImageUrl} />}
+              {lead.coverImageUrl && <CorporatePublicationCover api={api} className={styles.publicationsCoverImage} key={lead.coverImageUrl} publicationId={lead.id} src={lead.coverImageUrl} />}
               <span className={styles.badge}>{label(lead.priority)} · {lead.category}</span>
               <h2>{lead.title}</h2>
               <p className={styles.publicationsStandfirst}>{lead.summary}</p>
@@ -592,7 +618,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
             {editor.audience === 'ROLE' && <label>Rol de audiencia<input list="publication-role-codes" maxLength={60} onChange={(event) => setEditor({ ...editor, audienceRoleCode: event.target.value })} placeholder="Código de rol" required value={editor.audienceRoleCode} />{session.user.roles.length > 0 && <datalist id="publication-role-codes">{session.user.roles.map((role) => <option key={role} value={role} />)}</datalist>}</label>}
             <label>Programación inicial<input onChange={(event) => setEditor({ ...editor, scheduledAt: event.target.value })} type="datetime-local" value={editor.scheduledAt} /></label>
             <label>Expiración<input onChange={(event) => setEditor({ ...editor, expiresAt: event.target.value })} type="datetime-local" value={editor.expiresAt} /></label>
-            <label className={styles.publicationsWideField}>URL de portada<input maxLength={2000} onChange={(event) => setEditor({ ...editor, coverImageUrl: event.target.value })} placeholder="https://…" type="url" value={editor.coverImageUrl} /></label>
+            <label className={styles.publicationsWideField}>Ruta corporativa de portada<input maxLength={500} onChange={(event) => setEditor({ ...editor, coverImageUrl: event.target.value })} pattern="/media/publications/[A-Za-z0-9_/-]+\.(avif|gif|jpe?g|png|webp)" placeholder="/media/publications/seguridad/boletin.webp" type="text" value={editor.coverImageUrl} /><small>Sólo medios publicados por OPECONCA bajo /media/publications/.</small></label>
             <label className={styles.publicationsWideField}>Resumen<textarea maxLength={500} onChange={(event) => setEditor({ ...editor, summary: event.target.value })} required value={editor.summary} /></label>
             <label className={styles.publicationsWideField}>Contenido<textarea className={styles.publicationsContentEditor} maxLength={50000} onChange={(event) => setEditor({ ...editor, content: event.target.value })} required value={editor.content} /></label>
           </div>
@@ -603,7 +629,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
       {selected && <aside aria-labelledby="publication-detail-title" className={styles.publicationsDetail} ref={detailRef} tabIndex={-1}>
         <header className={styles.publicationsDetailHeader}><div><span className={styles.badge}>{label(selected.status)} · {label(selected.priority)}</span><h2 id="publication-detail-title">{selected.title}</h2><p>{selected.summary}</p></div><button onClick={closePublication} type="button">Cerrar</button></header>
         <dl className={styles.publicationsMetadata}><div><dt>Autor</dt><dd>{selected.authorName}</dd></div><div><dt>Categoría</dt><dd>{selected.category}</dd></div><div><dt>Audiencia</dt><dd>{label(selected.audience)}{selected.projectName ? ` · ${selected.projectName}` : selected.audienceRoleCode ? ` · ${selected.audienceRoleCode}` : ''}</dd></div><div><dt>Publicación</dt><dd>{formatDate(selected.publishedAt ?? selected.scheduledAt)}</dd></div><div><dt>Lecturas</dt><dd>{selected.acknowledgementCount}</dd></div><div><dt>Tareas</dt><dd>{selected.generatedTaskCount}</dd></div></dl>
-        {selected.coverImageUrl && <img alt="" className={styles.publicationsDetailImage} src={selected.coverImageUrl} />}
+        {selected.coverImageUrl && <CorporatePublicationCover api={api} className={styles.publicationsDetailImage} key={selected.coverImageUrl} publicationId={selected.id} src={selected.coverImageUrl} />}
         <div className={styles.publicationsArticleContent}>{selected.content}</div>
         <div className={styles.publicationsActions}>
           {editableSelected && <button onClick={() => beginEdit(selected)} type="button">Editar</button>}
@@ -628,7 +654,7 @@ export function PublicationsWorkspace({ api, session }: { api: PortalApi; sessio
           <button disabled={busy} type="submit">Generar tarea</button>
         </form>{generatedTasks.length > 0 && <ul className={styles.publicationsGeneratedTasks}>{generatedTasks.map((item) => <li key={item.id}><strong>{item.title}</strong><span>{label(item.status)} · {label(item.priority)}</span></li>)}</ul>}</section>}
       </aside>}
-    </main>
+    </section>
   )
 }
 
@@ -641,5 +667,5 @@ function ProjectField({ id, labelText, projects, value, onChange, required = fal
 }
 
 function UserField({ id, labelText, users, value, onChange }: { id: string; labelText: string; users: UserOption[]; value: string; onChange: (value: string) => void }) {
-  return <label htmlFor={id}>{labelText}{users.length > 0 ? <select id={id} onChange={(event) => onChange(event.target.value)} value={value}><option value="">Sin asignar</option>{users.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.email}</option>)}</select> : <input id={id} onChange={(event) => onChange(event.target.value)} pattern="[0-9a-fA-F-]{36}" placeholder="UUID del usuario" value={value} />}</label>
+  return <label htmlFor={id}>{labelText}<select id={id} onChange={(event) => onChange(event.target.value)} value={value}><option value="">{users.length ? 'Sin asignar' : 'No hay usuarios asignables'}</option>{users.map((user) => <option key={user.id} value={user.id}>{user.displayName} · {user.email}</option>)}</select></label>
 }

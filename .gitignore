@@ -13,6 +13,10 @@ dist-ssr
 .next
 .turbo
 coverage
+playwright-report
+test-results
+artifacts
+.env.test.generated
 *.tsbuildinfo
 *.local
 .env

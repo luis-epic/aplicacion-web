@@ -10,6 +10,7 @@ import {
   CreateChecklistItemDto,
   CreateTaskCommentDto,
   CreateTaskDto,
+  TaskAssignmentCandidatesQueryDto,
   TaskQueryDto,
   UpdateChecklistItemDto,
   UpdateTaskDto,
@@ -31,6 +32,12 @@ type DbClient = Prisma.TransactionClient | PrismaService
 
 type ChecklistRecord = TaskRecord['checklist'][number]
 type CommentRecord = TaskRecord['comments'][number]
+
+export interface AssignmentCandidateView {
+  id: string
+  displayName: string
+  email: string
+}
 
 export interface ChecklistItemView {
   id: string
@@ -82,6 +89,37 @@ export interface WorkTaskView {
 @Injectable()
 export class TasksService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async assignmentCandidates(
+    query: TaskAssignmentCandidatesQueryDto,
+  ): Promise<PageResult<AssignmentCandidateView>> {
+    if (query.projectId) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: query.projectId },
+        select: { id: true },
+      })
+      if (!project) throw new NotFoundException('Proyecto no encontrado.')
+    }
+    const search = query.search?.trim()
+    const where: Prisma.UserWhereInput = {
+      status: UserStatus.ACTIVE,
+      projectMemberships: query.projectId ? { some: { projectId: query.projectId } } : undefined,
+      OR: search ? [
+        { displayName: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ] : undefined,
+    }
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.user.findMany({
+        ...pageArgs(query),
+        where,
+        select: { id: true, displayName: true, email: true },
+        orderBy: { displayName: 'asc' },
+      }),
+      this.prisma.user.count({ where }),
+    ])
+    return { items, page: query.page, pageSize: query.pageSize, total }
+  }
 
   async list(query: TaskQueryDto, actor: SessionUser): Promise<PageResult<WorkTaskView>> {
     const search = query.search?.trim()

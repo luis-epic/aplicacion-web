@@ -17,7 +17,6 @@ import {
   IsOptional,
   IsRFC3339,
   IsString,
-  IsUrl,
   IsUUID,
   Matches,
   Max,
@@ -31,6 +30,12 @@ import { PageQueryDto } from '../common/page-query.dto'
 const Trim = () => Transform(({ value }: { value: unknown }) => (
   typeof value === 'string' ? value.trim() : value
 ))
+
+export const CORPORATE_PUBLICATION_COVER_PATTERN = /^\/media\/publications\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*\.(?:avif|gif|jpe?g|png|webp)$/
+
+export function isCorporatePublicationCover(value: string | null | undefined): value is string {
+  return typeof value === 'string' && CORPORATE_PUBLICATION_COVER_PATTERN.test(value)
+}
 
 export class PublicationFeedQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ enum: PublicationType })
@@ -102,9 +107,17 @@ export class CreatePublicationDto {
   @MaxLength(50_000)
   content!: string
 
-  @ApiPropertyOptional({ format: 'uri', maxLength: 2_000 })
-  @IsUrl({ require_protocol: true })
-  @MaxLength(2_000)
+  @ApiPropertyOptional({
+    pattern: '^/media/publications/.+\\.(avif|gif|jpe?g|png|webp)$',
+    example: '/media/publications/seguridad/boletin-semanal.webp',
+    maxLength: 500,
+  })
+  @Trim()
+  @IsString()
+  @Matches(CORPORATE_PUBLICATION_COVER_PATTERN, {
+    message: 'coverImageUrl debe ser una ruta corporativa bajo /media/publications/.',
+  })
+  @MaxLength(500)
   @IsOptional()
   coverImageUrl?: string
 
@@ -185,9 +198,18 @@ export class UpdatePublicationDto {
   @IsOptional()
   content?: string
 
-  @ApiPropertyOptional({ format: 'uri', maxLength: 2_000, nullable: true })
-  @IsUrl({ require_protocol: true })
-  @MaxLength(2_000)
+  @ApiPropertyOptional({
+    pattern: '^/media/publications/.+\\.(avif|gif|jpe?g|png|webp)$',
+    example: '/media/publications/seguridad/boletin-semanal.webp',
+    maxLength: 500,
+    nullable: true,
+  })
+  @Trim()
+  @IsString()
+  @Matches(CORPORATE_PUBLICATION_COVER_PATTERN, {
+    message: 'coverImageUrl debe ser una ruta corporativa bajo /media/publications/.',
+  })
+  @MaxLength(500)
   @IsOptional()
   coverImageUrl?: string | null
 

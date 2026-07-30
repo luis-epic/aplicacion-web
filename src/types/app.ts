@@ -1,4 +1,4 @@
-export type PageId = 'home' | 'checklist' | 'routines' | 'settings' | 'rain' | 'earthquakes'
+export type PageId = 'home' | 'publications' | 'tasks' | 'reports' | 'checklist' | 'routines' | 'settings' | 'rain' | 'earthquakes'
 
 export type IconName =
   | 'home'

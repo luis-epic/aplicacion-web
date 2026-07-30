@@ -12,6 +12,8 @@ import {
 
 import { Public } from '../auth/auth.decorators'
 import { PrismaService } from '../database/prisma.service'
+import { MetricsService } from '../observability/metrics.service'
+import { StructuredLoggerService } from '../observability/structured-logger.service'
 
 interface LiveHealthResponse {
   status: 'ok'
@@ -29,7 +31,11 @@ interface ReadyHealthResponse extends LiveHealthResponse {
 @Public()
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly metrics: MetricsService,
+    private readonly logger: StructuredLoggerService,
+  ) {}
 
   @Get('live')
   @ApiOperation({ summary: 'Comprueba que el proceso de la API está activo' })
@@ -69,6 +75,7 @@ export class HealthController {
     },
   })
   async ready(): Promise<ReadyHealthResponse> {
+    const startedAt = process.hrtime.bigint()
     try {
       await this.prisma.$transaction(
         async (transaction) => {
@@ -76,7 +83,15 @@ export class HealthController {
         },
         { maxWait: 1_000, timeout: 2_000 },
       )
-    } catch {
+      this.metrics.databaseProbeCompleted(true, this.elapsedSeconds(startedAt))
+    } catch (error) {
+      const durationSeconds = this.elapsedSeconds(startedAt)
+      this.metrics.databaseProbeCompleted(false, durationSeconds)
+      this.logger.error({
+        event: 'postgres_readiness_failed',
+        durationMs: Math.round(durationSeconds * 100_000) / 100,
+        error,
+      }, undefined, 'HealthController')
       throw new ServiceUnavailableException({
         status: 'error',
         service: 'opeconca-api',
@@ -89,6 +104,10 @@ export class HealthController {
       ...this.baseResponse(),
       dependencies: { postgresql: 'up' },
     }
+  }
+
+  private elapsedSeconds(startedAt: bigint): number {
+    return Number(process.hrtime.bigint() - startedAt) / 1_000_000_000
   }
 
   private baseResponse(): LiveHealthResponse {

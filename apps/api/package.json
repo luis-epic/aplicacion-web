@@ -6,13 +6,14 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
-    "lint": "oxlint src prisma/seed.ts prisma.config.ts",
+    "lint": "oxlint src prisma/*.ts prisma.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit --pretty false",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "prisma:seed": "pnpm --filter @opeconca/contracts build && prisma db seed"
+    "prisma:seed": "pnpm --filter @opeconca/contracts build && prisma db seed",
+    "admin:bootstrap": "tsx prisma/bootstrap-admin.ts"
   },
   "dependencies": {
     "@nestjs/common": "11.1.28",
@@ -29,6 +30,7 @@
     "class-validator": "0.15.1",
     "cookie-parser": "1.4.7",
     "dotenv": "17.4.2",
+    "express": "5.2.1",
     "helmet": "8.3.0",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",

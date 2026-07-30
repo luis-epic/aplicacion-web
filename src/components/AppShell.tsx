@@ -12,8 +12,9 @@ interface AppShellProps {
 
 const navItems: Array<{ id: PageId; label: string; icon: IconName }> = [
   { id: 'home', label: 'Inicio', icon: 'home' },
-  { id: 'checklist', label: 'Mi lista', icon: 'checklist' },
-  { id: 'routines', label: 'Rutinas', icon: 'routines' },
+  { id: 'publications', label: 'Actualidad', icon: 'book' },
+  { id: 'tasks', label: 'Tareas', icon: 'briefcase' },
+  { id: 'reports', label: 'Reportes', icon: 'checklist' },
   { id: 'settings', label: 'Ajustes', icon: 'settings' },
 ]
 

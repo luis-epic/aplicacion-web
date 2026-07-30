@@ -2,7 +2,7 @@
 
 import { authSessionSchema, type AuthSession } from '@opeconca/contracts'
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1'
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1'
 const REQUEST_TIMEOUT_MS = 12_000
 
 export interface PageResult<T> {
@@ -35,6 +35,18 @@ export class PortalApi {
     this.accessToken = session.accessToken
     this.onSession(session)
     return this.read<T>(await this.fetchWithTimeout(path, init))
+  }
+
+  async requestBlob(path: string): Promise<Blob> {
+    let response = await this.fetchWithTimeout(path, { cache: 'no-store' })
+    if (response.status === 401) {
+      const session = await this.refresh()
+      this.accessToken = session.accessToken
+      this.onSession(session)
+      response = await this.fetchWithTimeout(path, { cache: 'no-store' })
+    }
+    if (!response.ok) await this.read<never>(response)
+    return response.blob()
   }
 
   private async refresh(): Promise<AuthSession> {

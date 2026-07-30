@@ -40,7 +40,7 @@ export interface FieldReportPayload {
   idempotencyKey: string
 }
 
-export interface ServerFieldReport extends FieldReportPayload {
+export interface ServerFieldReport extends Omit<FieldReportPayload, 'weatherNotes' | 'incidentNotes'> {
   id: string
   projectCode: string
   projectName: string

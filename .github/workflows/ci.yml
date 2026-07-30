@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.18.0
+  PNPM_VERSION: 11.17.0
+  GITLEAKS_IMAGE: zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+  TRIVY_IMAGE: aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: corepack prepare pnpm@${PNPM_VERSION} --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:coverage
+      - run: pnpm typecheck:all
+      - run: pnpm lint:all
+      - run: pnpm build:all
+      - run: pnpm audit --prod
+      - run: pnpm compose:validate
+      - run: git diff --check
+
+  secrets:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan working tree
+        run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" dir /repo --redact --no-banner
+      - name: Scan Git history
+        run: docker run --rm -v "$PWD:/repo" "$GITLEAKS_IMAGE" git /repo --redact --no-banner
+
+  system-and-images:
+    needs: [quality, secrets]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: corepack enable
+      - run: corepack prepare pnpm@${PNPM_VERSION} --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Build candidate images once and run system tests
+        run: pnpm test:system
+      - name: Scan tested images and generate SBOM evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/sbom artifacts/image-metadata
+          : > artifacts/image-metadata/local-images.txt
+          for image in opeconca-test-api:test opeconca-test-api-migrate:test opeconca-test-web:test opeconca-test-field:test; do
+            safe_name="${image//[:\/]/-}"
+            docker image inspect "$image" --format '{{.RepoTags}} {{.Id}}' >> artifacts/image-metadata/local-images.txt
+            docker image inspect "$image" > "artifacts/image-metadata/${safe_name}.inspect.json"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY_IMAGE" image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$image"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/sbom:/artifacts" "$TRIVY_IMAGE" image --format cyclonedx --output "/artifacts/${safe_name}.cdx.json" "$image"
+          done
+      - name: Publish the exact tested images by digest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+          publish_image() {
+            local source="$1" name="$2" variable="$3"
+            local target="$repository/$name:$GITHUB_SHA"
+            docker tag "$source" "$target"
+            local digest
+            digest="$(docker push "$target" | tee /dev/stderr | awk '/^digest:/ {print $2}' | tail -1)"
+            [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Digest inválido para $name" >&2; exit 1; }
+            echo "$variable=$repository/$name@$digest" >> "$GITHUB_ENV"
+          }
+          publish_image opeconca-test-api:test api API_IMAGE
+          publish_image opeconca-test-api-migrate:test api-migration API_MIGRATION_IMAGE
+          publish_image opeconca-test-web:test web WEB_IMAGE
+          publish_image opeconca-test-field:test field FIELD_IMAGE
+      - name: Create and verify promotion evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_COMMIT="$GITHUB_SHA" node scripts/create-release-manifest.mjs
+          (
+            cd artifacts
+            sha256sum release/release-manifest.json release/images.env sbom/*.cdx.json image-metadata/*.inspect.json > release/SHA256SUMS
+            sha256sum -c release/SHA256SUMS
+          )
+      - name: Upload SBOM evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: opeconca-sbom-${{ github.sha }}
+          path: artifacts/sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload promotion evidence
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: opeconca-release-${{ github.sha }}
+          path: |
+            artifacts/release/*
+            artifacts/sbom/*.cdx.json
+            artifacts/image-metadata/*
+          if-no-files-found: error
+          retention-days: 90
+      - name: Cleanup isolated environment
+        if: always()
+        run: docker compose --project-name opeconca-test -f infra/compose.test.yaml down --volumes --remove-orphans

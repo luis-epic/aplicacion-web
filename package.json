@@ -16,16 +16,29 @@
     "dev:platform": "concurrently --kill-others --names api,web \"pnpm --filter @opeconca/api dev\" \"pnpm --filter @opeconca/web dev\"",
     "dev:all": "concurrently --kill-others --names field,platform \"pnpm run dev\" \"pnpm run dev:platform\"",
     "build": "tsc -b && vite build",
-    "lint": "oxlint src",
+    "lint": "oxlint src tests scripts vitest.config.ts playwright.config.ts",
     "typecheck": "tsc -b --pretty false",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit --pretty false",
     "preview": "vite preview",
     "mvp:setup": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-mvp.ps1",
     "mvp:up": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup-mvp.ps1 -SkipBuild",
     "mvp:down": "docker compose --env-file .env -f infra/compose.mvp.yaml down",
     "mvp:status": "docker compose --env-file .env -f infra/compose.mvp.yaml ps",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:coverage": "vitest run --config vitest.config.ts tests/unit --coverage",
+    "test:integration": "node scripts/run-compose-tests.mjs integration",
+    "test:e2e": "node scripts/run-compose-tests.mjs e2e",
+    "test:a11y": "node scripts/run-compose-tests.mjs a11y",
+    "test:offline": "node scripts/run-compose-tests.mjs offline",
+    "test:system": "node scripts/run-compose-tests.mjs system",
+    "test:all": "pnpm run test:coverage && pnpm run test:system",
     "build:all": "pnpm run build && turbo run build",
     "lint:all": "pnpm run lint && turbo run lint",
-    "typecheck:all": "pnpm run typecheck && turbo run typecheck"
+    "typecheck:all": "pnpm run typecheck && pnpm run typecheck:test && turbo run typecheck",
+    "compose:validate": "node scripts/validate-compose.mjs",
+    "release:manifest": "node scripts/create-release-manifest.mjs",
+    "release:validate": "pnpm run test:all && pnpm run typecheck:all && pnpm run lint:all && pnpm run build:all && pnpm audit --prod && pnpm run compose:validate && git diff --check"
   },
   "dependencies": {
     "leaflet": "1.9.4",
@@ -33,16 +46,21 @@
     "react-dom": "19.2.7"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
+    "@playwright/test": "1.62.0",
     "@types/leaflet": "1.9.21",
     "@types/node": "24.13.2",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.3",
+    "@vitest/coverage-v8": "4.1.10",
     "concurrently": "10.0.4",
+    "fake-indexeddb": "6.2.5",
     "oxlint": "1.71.0",
     "pnpm": "11.17.0",
     "turbo": "2.10.7",
     "typescript": "6.0.2",
-    "vite": "8.1.1"
+    "vite": "8.1.1",
+    "vitest": "4.1.10"
   }
 }

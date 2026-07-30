@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AppShell } from './components/AppShell'
+import { FieldSessionGate, FieldSessionProvider } from './components/FieldSessionProvider'
 import { initialDraft, initialPreferences, routines as initialRoutines } from './data/mockData'
 import { generateChecklist } from './domain/recommendationEngine'
 import {
@@ -10,10 +11,13 @@ import {
 } from './domain/personalizationEngine'
 import { ChecklistPage } from './pages/ChecklistPage'
 import { EarthquakePage } from './pages/EarthquakePage'
+import { FieldReportsPage } from './pages/FieldReportsPage'
 import { HomePage } from './pages/HomePage'
+import { PublicationsPage } from './pages/PublicationsPage'
 import { RainMapPage } from './pages/RainMapPage'
 import { RoutinesPage } from './pages/RoutinesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { WorkTasksPage } from './pages/WorkTasksPage'
 import { clearAppState, loadAppState, saveAppState } from './services/appStorage'
 import {
   getNotificationPermission,
@@ -41,6 +45,9 @@ import './App.css'
 
 const pageHash: Record<PageId, string> = {
   home: 'inicio',
+  publications: 'actualidad',
+  tasks: 'tareas',
+  reports: 'reportes',
   checklist: 'lista',
   routines: 'rutinas',
   settings: 'ajustes',
@@ -50,6 +57,9 @@ const pageHash: Record<PageId, string> = {
 
 const pageTitle: Record<PageId, string> = {
   home: 'Inicio',
+  publications: 'Actualidad',
+  tasks: 'Tareas',
+  reports: 'Reportes',
   checklist: 'Mi lista',
   routines: 'Rutinas',
   settings: 'Ajustes',
@@ -571,6 +581,12 @@ function App() {
             onResolveLocation={resolveMapLocation}
           />
         )
+      case 'publications':
+        return <FieldSessionGate requiredPermissions={['publications.read']} title="Actualidad corporativa"><PublicationsPage /></FieldSessionGate>
+      case 'tasks':
+        return <FieldSessionGate requiredPermissions={['tasks.read']} title="Centro de trabajo"><WorkTasksPage /></FieldSessionGate>
+      case 'reports':
+        return <FieldSessionGate requiredPermissions={['fieldReports.read']} title="Reportes de campo"><FieldReportsPage /></FieldSessionGate>
       case 'checklist':
         return (
           <ChecklistPage
@@ -635,13 +651,15 @@ function App() {
   })()
 
   return (
-    <AppShell
-      activePage={activePage}
-      immersive={activePage === 'rain' || activePage === 'earthquakes'}
-      onNavigate={navigate}
-    >
-      {currentPage}
-    </AppShell>
+    <FieldSessionProvider>
+      <AppShell
+        activePage={activePage}
+        immersive={activePage === 'rain' || activePage === 'earthquakes'}
+        onNavigate={navigate}
+      >
+        {currentPage}
+      </AppShell>
+    </FieldSessionProvider>
   )
 }
 

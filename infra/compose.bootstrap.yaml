@@ -1,0 +1,35 @@
+services:
+  api-bootstrap:
+    image: ${API_MIGRATION_IMAGE:?API_MIGRATION_IMAGE is required}
+    profiles: [bootstrap]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+      ADMIN_PASSWORD_FILE: /run/secrets/admin_password
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_NAME: ${ADMIN_NAME:?ADMIN_NAME is required}
+      ADMIN_BOOTSTRAP_CONFIRM: ${ADMIN_BOOTSTRAP_CONFIRM:?ADMIN_BOOTSTRAP_CONFIRM is required}
+    secrets:
+      - database_url
+      - admin_password
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+    networks:
+      - data
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    cpus: 0.5
+    mem_limit: 512m
+    restart: 'no'
+    command: ['node', 'node_modules/tsx/dist/cli.mjs', 'prisma/bootstrap-admin.ts']
+
+secrets:
+  admin_password:
+    file: ${ADMIN_PASSWORD_FILE:?ADMIN_PASSWORD_FILE is required}

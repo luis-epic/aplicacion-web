@@ -1,9 +1,17 @@
 name: ${COMPOSE_PROJECT_NAME:-opeconca-production}
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
 services:
   postgres:
-    image: postgres:17.5-alpine3.22
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
     restart: unless-stopped
+    stop_grace_period: 60s
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
@@ -40,10 +48,6 @@ services:
 
   api-migrate:
     image: ${API_MIGRATION_IMAGE:?API_MIGRATION_IMAGE is required}
-    build:
-      context: ..
-      dockerfile: infra/docker/Dockerfile.api
-      target: migration
     environment:
       NODE_ENV: production
       DATABASE_URL_FILE: /run/secrets/database_url
@@ -64,15 +68,14 @@ services:
     pids_limit: 100
     cpus: 0.5
     mem_limit: 512m
+    logging: *default-logging
     restart: 'no'
 
   api:
     image: ${API_IMAGE:?API_IMAGE is required}
-    build:
-      context: ..
-      dockerfile: infra/docker/Dockerfile.api
-      target: runtime
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *default-logging
     init: true
     environment:
       NODE_ENV: production
@@ -85,10 +88,16 @@ services:
       JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:?JWT_REFRESH_TTL_DAYS is required}
       APP_URL: ${APP_URL:?APP_URL is required}
       FIELD_APP_URL: ${FIELD_APP_URL:?FIELD_APP_URL is required}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SERVICE_VERSION: ${SERVICE_VERSION:?SERVICE_VERSION is required}
+      METRICS_ENABLED: 'true'
+      METRICS_TOKEN_FILE: /run/secrets/metrics_token
+      PUBLICATION_MEDIA_ROOT: /app/media/publications
     secrets:
       - database_url
       - jwt_access_secret
       - jwt_refresh_secret
+      - metrics_token
     depends_on:
       api-migrate:
         condition: service_completed_successfully
@@ -98,6 +107,8 @@ services:
       - data
     ports:
       - 127.0.0.1:${API_BIND_PORT:-4000}:4000
+    volumes:
+      - ${PUBLICATION_MEDIA_PATH:?PUBLICATION_MEDIA_PATH is required}:/app/media/publications:ro
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m,uid=1000,gid=1000
@@ -117,17 +128,12 @@ services:
 
   web:
     image: ${WEB_IMAGE:?WEB_IMAGE is required}
-    build:
-      context: ..
-      dockerfile: infra/docker/Dockerfile.web
-      target: runtime
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *default-logging
     init: true
     environment:
-      NODE_ENV: production
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?NEXT_PUBLIC_API_URL is required}
+      API_INTERNAL_URL: http://api:4000/api/v1
     depends_on:
       api:
         condition: service_healthy
@@ -156,11 +162,9 @@ services:
 
   field:
     image: ${FIELD_IMAGE:?FIELD_IMAGE is required}
-    build:
-      context: ..
-      dockerfile: infra/docker/Dockerfile.field
-      target: runtime
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging: *default-logging
     networks:
       - edge
     ports:
@@ -203,3 +207,5 @@ secrets:
     file: ${JWT_ACCESS_SECRET_FILE:?JWT_ACCESS_SECRET_FILE is required}
   jwt_refresh_secret:
     file: ${JWT_REFRESH_SECRET_FILE:?JWT_REFRESH_SECRET_FILE is required}
+  metrics_token:
+    file: ${METRICS_TOKEN_FILE:?METRICS_TOKEN_FILE is required}

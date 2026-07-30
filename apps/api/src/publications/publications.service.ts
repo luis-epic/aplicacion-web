@@ -18,14 +18,19 @@ import {
   UserStatus,
   type WorkTask,
 } from '@prisma/client'
+import { ConfigService } from '@nestjs/config'
 import type { SessionUser } from '@opeconca/contracts'
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { realpath, stat } from 'node:fs/promises'
+import { extname, resolve, sep } from 'node:path'
 import { type PageResult, pageArgs } from '../common/page-query.dto'
 import { iso } from '../common/prisma-errors'
 import { PrismaService } from '../database/prisma.service'
 import {
   CreatePublicationDto,
   GeneratePublicationTasksDto,
+  isCorporatePublicationCover,
   PublicationAcknowledgementQueryDto,
   PublicationFeedQueryDto,
   PublicationQueryDto,
@@ -42,6 +47,21 @@ const publicationInclude = Prisma.validator<Prisma.PublicationInclude>()({
 type PublicationRecord = Prisma.PublicationGetPayload<{ include: typeof publicationInclude }>
 
 type DatabaseClient = Prisma.TransactionClient | PrismaService
+
+const publicationMediaPrefix = '/media/publications/'
+const publicationCoverTypes: Readonly<Record<string, string>> = {
+  '.avif': 'image/avif',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+}
+
+export interface PublicationCover {
+  contentType: string
+  stream: ReturnType<typeof createReadStream>
+}
 
 export interface PublicationView {
   id: string
@@ -102,9 +122,15 @@ export interface GeneratedTaskView {
 @Injectable()
 export class PublicationsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PublicationsService.name)
+  private readonly publicationMediaRoot: string
   private activationTimer?: ReturnType<typeof setInterval>
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    this.publicationMediaRoot = resolve(config.getOrThrow<string>('PUBLICATION_MEDIA_ROOT'))
+  }
 
   onModuleInit(): void {
     void this.activateScheduledPublications(new Date()).catch((error: unknown) => {
@@ -207,6 +233,30 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
     const publication = await this.getRecord(this.prisma, id)
     await this.assertReadable(publication, actor)
     return this.toView(publication)
+  }
+
+  async cover(id: string, actor: SessionUser): Promise<PublicationCover> {
+    const publication = await this.getRecord(this.prisma, id)
+    await this.assertReadable(publication, actor)
+    if (!isCorporatePublicationCover(publication.coverImageUrl)) {
+      throw new NotFoundException('La publicación no tiene una portada disponible.')
+    }
+
+    try {
+      const mediaRoot = await realpath(this.publicationMediaRoot)
+      const relativePath = publication.coverImageUrl.slice(publicationMediaPrefix.length)
+      const candidatePath = await realpath(resolve(mediaRoot, ...relativePath.split('/')))
+      if (!candidatePath.startsWith(`${mediaRoot}${sep}`)) {
+        throw new NotFoundException('Portada no encontrada.')
+      }
+      const file = await stat(candidatePath)
+      const contentType = publicationCoverTypes[extname(candidatePath).toLowerCase()]
+      if (!file.isFile() || !contentType) throw new NotFoundException('Portada no encontrada.')
+      return { contentType, stream: createReadStream(candidatePath) }
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error
+      throw new NotFoundException('Portada no encontrada.')
+    }
   }
 
   async create(dto: CreatePublicationDto, actor: SessionUser): Promise<PublicationView> {
@@ -684,6 +734,11 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
       publication.authorId === actor.id &&
       actor.permissions.includes('publications.create')
     ) return
+    if (
+      allowManage &&
+      actor.permissions.includes('publications.publish') &&
+      (publication.status === PublicationStatus.IN_REVIEW || publication.status === PublicationStatus.SCHEDULED)
+    ) return
     if (!actor.permissions.includes('publications.read')) {
       throw new ForbiddenException('No tienes permiso para leer publicaciones.')
     }
@@ -775,7 +830,7 @@ export class PublicationsService implements OnModuleInit, OnModuleDestroy {
       slug: publication.slug,
       summary: publication.summary,
       content: publication.content,
-      coverImageUrl: publication.coverImageUrl,
+      coverImageUrl: isCorporatePublicationCover(publication.coverImageUrl) ? publication.coverImageUrl : null,
       type: publication.type,
       category: publication.category,
       status: publication.status,

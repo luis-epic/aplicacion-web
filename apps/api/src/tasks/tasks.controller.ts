@@ -8,11 +8,12 @@ import {
   CreateChecklistItemDto,
   CreateTaskCommentDto,
   CreateTaskDto,
+  TaskAssignmentCandidatesQueryDto,
   TaskQueryDto,
   UpdateChecklistItemDto,
   UpdateTaskDto,
 } from './tasks.dto'
-import { type ChecklistItemView, type TaskCommentView, TasksService, type WorkTaskView } from './tasks.service'
+import { type AssignmentCandidateView, type ChecklistItemView, type TaskCommentView, TasksService, type WorkTaskView } from './tasks.service'
 
 const uuid = () => new ParseUUIDPipe({ version: '4' })
 
@@ -27,6 +28,15 @@ export class TasksController {
   @ApiOperation({ summary: 'Lista tareas paginadas con filtros y alcance por usuario' })
   list(@Query() query: TaskQueryDto, @CurrentUser() actor: SessionUser): Promise<PageResult<WorkTaskView>> {
     return this.tasks.list(query, actor)
+  }
+
+  @Get('assignment-candidates')
+  @RequirePermissions('tasks.assign')
+  @ApiOperation({ summary: 'Lista usuarios activos asignables, limitados a miembros del proyecto cuando aplica' })
+  assignmentCandidates(
+    @Query() query: TaskAssignmentCandidatesQueryDto,
+  ): Promise<PageResult<AssignmentCandidateView>> {
+    return this.tasks.assignmentCandidates(query)
   }
 
   @Get(':id')

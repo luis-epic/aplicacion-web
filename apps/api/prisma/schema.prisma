@@ -110,28 +110,121 @@ enum TaskRecurrence {
   MONTHLY
 }
 
+enum ConcreteOrderStatus {
+  PENDING
+  CONFIRMED
+  PRODUCING
+  LOADED
+  IN_TRANSIT
+  AT_SITE
+  DISCHARGING
+  COMPLETED
+  CANCELLED
+}
+
+model Organization {
+  id                   String                @id @default(uuid()) @db.Uuid
+  code                 String                @unique @db.VarChar(40)
+  name                 String                @db.VarChar(160)
+  taxId                String?               @unique @db.VarChar(50)
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  users                User[]
+  clients              Client[]
+  projects             Project[]
+  roles                Role[]
+  permissions          Permission[]
+  fieldReports         FieldReport[]
+  publications         Publication[]
+  workTasks            WorkTask[]
+  auditLogs            AuditLog[]
+  concreteOrders       ConcreteOrder[]
+  organizationSites    OrganizationSite[]
+  organizationFeatures OrganizationFeature[]
+
+  @@index([code])
+  @@index([taxId])
+}
+
+model OrganizationSite {
+  id                 String              @id @default(uuid()) @db.Uuid
+  organizationId     String              @db.Uuid
+  code               String              @db.VarChar(60)
+  name               String              @db.VarChar(160)
+  address            String?             @db.Text
+  latitude           Float?
+  longitude          Float?
+  isActive           Boolean             @default(true)
+  isPrimary          Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users              User[]
+  projects           Project[]
+  organizationPlants OrganizationPlant[]
+
+  @@index([organizationId, code])
+  @@index([organizationId, isPrimary])
+}
+
+model OrganizationPlant {
+  id                String           @id @default(uuid()) @db.Uuid
+  siteId            String           @db.Uuid
+  code              String           @db.VarChar(60)
+  name              String           @db.VarChar(160)
+  capacityM3PerHour Decimal?         @db.Decimal
+  isActive          Boolean          @default(true)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  site              OrganizationSite @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  orders            ConcreteOrder[]
+
+  @@index([siteId, code])
+}
+
+model OrganizationFeature {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  featureKey     String       @db.VarChar(100)
+  isEnabled      Boolean      @default(false)
+  config         Json?        @db.Json
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, featureKey])
+  @@index([featureKey])
+}
+
 model User {
-  id                 String          @id @default(uuid()) @db.Uuid
-  email              String          @unique @db.Citext
-  passwordHash       String          @db.VarChar(255)
-  displayName        String          @db.VarChar(120)
-  status             UserStatus      @default(ACTIVE)
-  tokenVersion       Int             @default(0)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  roles              UserRole[]
-  projectMemberships ProjectMember[]
-  authoredReports              FieldReport[]                 @relation("ReportAuthor")
-  approvedReports              FieldReport[]                 @relation("ReportApprover")
-  authoredPublications         Publication[]                 @relation("PublicationAuthor")
-  reviewedPublications         Publication[]                 @relation("PublicationReviewer")
+  id                          String                       @id @default(uuid()) @db.Uuid
+  email                       String                       @unique @db.Citext
+  passwordHash                String                       @db.VarChar(255)
+  displayName                 String                       @db.VarChar(120)
+  status                      UserStatus                   @default(ACTIVE)
+  organizationId              String?                      @db.Uuid
+  siteId                      String?                      @db.Uuid
+  tokenVersion                Int                          @default(0)
+  createdAt                   DateTime                     @default(now())
+  updatedAt                   DateTime                     @updatedAt
+  organization                Organization?                @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  site                        OrganizationSite?            @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  roles                       UserRole[]
+  projectMemberships          ProjectMember[]
+  authoredReports             FieldReport[]                @relation("ReportAuthor")
+  approvedReports             FieldReport[]                @relation("ReportApprover")
+  authoredPublications        Publication[]                @relation("PublicationAuthor")
+  reviewedPublications        Publication[]                @relation("PublicationReviewer")
   publicationAcknowledgements PublicationAcknowledgement[]
-  createdTasks                 WorkTask[]                    @relation("TaskCreator")
-  assignedTasks                WorkTask[]                    @relation("TaskAssignee")
-  supervisedTasks              WorkTask[]                    @relation("TaskSupervisor")
-  taskComments                 TaskComment[]
-  auditEvents                  AuditLog[]                    @relation("AuditActor")
-  refreshSessions    RefreshSession[]
+  createdTasks                WorkTask[]                   @relation("TaskCreator")
+  assignedTasks               WorkTask[]                   @relation("TaskAssignee")
+  supervisedTasks             WorkTask[]                   @relation("TaskSupervisor")
+  taskComments                TaskComment[]
+  auditEvents                 AuditLog[]                   @relation("AuditActor")
+  refreshSessions             RefreshSession[]
+
+  @@index([organizationId])
+  @@index([siteId])
 }
 
 model RefreshSession {
@@ -175,19 +268,29 @@ model LoginThrottle {
 }
 
 model Role {
-  id          String           @id @default(uuid()) @db.Uuid
-  code        String           @unique @db.VarChar(60)
-  name        String           @db.VarChar(100)
-  description String?          @db.VarChar(300)
-  users       UserRole[]
-  permissions RolePermission[]
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  code           String           @db.VarChar(60)
+  name           String           @db.VarChar(100)
+  description    String?          @db.VarChar(300)
+  users          UserRole[]
+  permissions    RolePermission[]
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
 }
 
 model Permission {
-  id          String           @id @default(uuid()) @db.Uuid
-  code        PermissionCode   @unique
-  description String?          @db.VarChar(300)
-  roles       RolePermission[]
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  code           PermissionCode   @unique
+  description    String?          @db.VarChar(300)
+  roles          RolePermission[]
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
 }
 
 model UserRole {
@@ -209,14 +312,19 @@ model RolePermission {
 }
 
 model Client {
-  id        String    @id @default(uuid()) @db.Uuid
-  name      String    @db.VarChar(160)
-  taxId     String?   @unique @db.VarChar(50)
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  contacts  Contact[]
-  projects  Project[]
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String       @db.VarChar(160)
+  taxId          String?      @db.VarChar(50)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contacts       Contact[]
+  projects       Project[]
+
+  @@index([organizationId, name])
+  @@index([organizationId, taxId])
 }
 
 model Contact {
@@ -233,23 +341,29 @@ model Contact {
 }
 
 model Project {
-  id          String          @id @default(uuid()) @db.Uuid
-  code        String          @unique @db.VarChar(40)
-  clientId    String          @db.Uuid
-  name        String          @db.VarChar(160)
-  description String?         @db.Text
-  status      ProjectStatus   @default(DRAFT)
-  startsAt    DateTime?
-  endsAt      DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  client      Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  members      ProjectMember[]
-  reports      FieldReport[]
-  publications Publication[]
-  tasks        WorkTask[]
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @db.Uuid
+  clientId           String            @db.Uuid
+  code               String            @db.VarChar(40)
+  name               String            @db.VarChar(160)
+  description        String?           @db.Text
+  status             ProjectStatus     @default(DRAFT)
+  startsAt           DateTime?
+  endsAt             DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client             Client            @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  members            ProjectMember[]
+  reports            FieldReport[]
+  publications       Publication[]
+  tasks              WorkTask[]
+  concreteOrders     ConcreteOrder[]
+  organizationSite   OrganizationSite? @relation(fields: [organizationSiteId], references: [id])
+  organizationSiteId String?           @db.Uuid
 
-  @@index([clientId, status])
+  @@unique([organizationId, code])
+  @@index([organizationId, clientId, status])
 }
 
 model ProjectMember {
@@ -266,6 +380,7 @@ model ProjectMember {
 
 model FieldReport {
   id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @db.Uuid
   projectId       String       @db.Uuid
   authorId        String       @db.Uuid
   approverId      String?      @db.Uuid
@@ -282,64 +397,72 @@ model FieldReport {
   idempotencyKey  String       @unique @db.Uuid
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   project         Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
   author          User         @relation("ReportAuthor", fields: [authorId], references: [id], onDelete: Restrict)
   approver        User?        @relation("ReportApprover", fields: [approverId], references: [id], onDelete: Restrict)
   attachments     Attachment[]
 
+  @@index([organizationId, projectId, reportDate])
+  @@index([organizationId, authorId, status])
   @@index([projectId, reportDate])
   @@index([authorId, status])
 }
 
 model Attachment {
-  id         String      @id @default(uuid()) @db.Uuid
-  reportId   String      @db.Uuid
-  objectKey  String      @unique @db.VarChar(500)
-  fileName   String      @db.VarChar(255)
-  contentType String     @db.VarChar(120)
-  sizeBytes  Int
-  createdAt  DateTime    @default(now())
-  report     FieldReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  id          String      @id @default(uuid()) @db.Uuid
+  reportId    String      @db.Uuid
+  objectKey   String      @unique @db.VarChar(500)
+  fileName    String      @db.VarChar(255)
+  contentType String      @db.VarChar(120)
+  sizeBytes   Int
+  createdAt   DateTime    @default(now())
+  report      FieldReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   @@index([reportId])
 }
 
 model Publication {
-  id               String              @id @default(uuid()) @db.Uuid
-  title            String              @db.VarChar(180)
-  slug             String              @unique @db.VarChar(180)
-  summary          String              @db.VarChar(500)
-  content          String              @db.Text
-  coverImageUrl    String?             @db.VarChar(2000)
+  id               String                       @id @default(uuid()) @db.Uuid
+  organizationId   String                       @db.Uuid
+  title            String                       @db.VarChar(180)
+  slug             String                       @unique @db.VarChar(180)
+  summary          String                       @db.VarChar(500)
+  content          String                       @db.Text
+  coverImageUrl    String?                      @db.VarChar(2000)
   type             PublicationType
-  category         String              @db.VarChar(80)
-  status           PublicationStatus   @default(DRAFT)
-  priority         PublicationPriority @default(NORMAL)
-  audience         PublicationAudience @default(ALL)
-  audienceRoleCode String?             @db.VarChar(60)
-  projectId        String?             @db.Uuid
-  authorId         String              @db.Uuid
-  reviewerId       String?             @db.Uuid
+  category         String                       @db.VarChar(80)
+  status           PublicationStatus            @default(DRAFT)
+  priority         PublicationPriority          @default(NORMAL)
+  audience         PublicationAudience          @default(ALL)
+  audienceRoleCode String?                      @db.VarChar(60)
+  projectId        String?                      @db.Uuid
+  authorId         String                       @db.Uuid
+  reviewerId       String?                      @db.Uuid
   scheduledAt      DateTime?
   publishedAt      DateTime?
   expiresAt        DateTime?
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  project          Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  author           User                @relation("PublicationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
-  reviewer         User?               @relation("PublicationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+  organization     Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project          Project?                     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  author           User                         @relation("PublicationAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  reviewer         User?                        @relation("PublicationReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
   acknowledgements PublicationAcknowledgement[]
   generatedTasks   WorkTask[]
 
+  @@index([organizationId, status, publishedAt])
+  @@index([organizationId, projectId, status])
+  @@index([organizationId, type, category])
   @@index([status, publishedAt])
   @@index([projectId, status])
   @@index([type, category])
 }
 
 model PublicationAcknowledgement {
-  publicationId String   @db.Uuid
-  userId        String   @db.Uuid
-  readAt        DateTime @default(now())
+  publicationId String      @db.Uuid
+  userId        String      @db.Uuid
+  readAt        DateTime    @default(now())
   publication   Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
   user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -348,36 +471,62 @@ model PublicationAcknowledgement {
 }
 
 model WorkTask {
-  id                  String         @id @default(uuid()) @db.Uuid
-  projectId           String?        @db.Uuid
-  title               String         @db.VarChar(180)
-  description         String?        @db.Text
-  status              TaskStatus     @default(PENDING)
-  priority            TaskPriority   @default(NORMAL)
-  recurrence          TaskRecurrence @default(NONE)
-  creatorId           String         @db.Uuid
-  assigneeId          String?        @db.Uuid
-  supervisorId        String?        @db.Uuid
-  sourcePublicationId String?        @db.Uuid
-  idempotencyKey         String?        @unique @db.Uuid
-  idempotencyFingerprint String?        @db.Char(64)
+  id                     String              @id @default(uuid()) @db.Uuid
+  organizationId         String              @db.Uuid
+  projectId              String?             @db.Uuid
+  title                  String              @db.VarChar(180)
+  description            String?             @db.Text
+  status                 TaskStatus          @default(PENDING)
+  priority               TaskPriority        @default(NORMAL)
+  recurrence             TaskRecurrence      @default(NONE)
+  creatorId              String              @db.Uuid
+  assigneeId             String?             @db.Uuid
+  supervisorId           String?             @db.Uuid
+  sourcePublicationId    String?             @db.Uuid
+  idempotencyKey         String?             @unique @db.Uuid
+  idempotencyFingerprint String?             @db.Char(64)
   dueAt                  DateTime?
-  startedAt           DateTime?
-  completedAt         DateTime?
-  estimatedMinutes    Int?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  project             Project?       @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  creator             User           @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: Restrict)
-  assignee            User?          @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
-  supervisor          User?          @relation("TaskSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
-  sourcePublication   Publication?   @relation(fields: [sourcePublicationId], references: [id], onDelete: SetNull)
-  checklist           TaskChecklistItem[]
-  comments            TaskComment[]
+  startedAt              DateTime?
+  completedAt            DateTime?
+  estimatedMinutes       Int?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  organization           Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project                Project?            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  creator                User                @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: Restrict)
+  assignee               User?               @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  supervisor             User?               @relation("TaskSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  sourcePublication      Publication?        @relation(fields: [sourcePublicationId], references: [id], onDelete: SetNull)
+  checklist              TaskChecklistItem[]
+  comments               TaskComment[]
 
+  @@index([organizationId, assigneeId, status, dueAt])
+  @@index([organizationId, projectId, status])
+  @@index([organizationId, supervisorId, status])
   @@index([assigneeId, status, dueAt])
   @@index([projectId, status])
   @@index([supervisorId, status])
+}
+
+model ConcreteOrder {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @db.Uuid
+  projectCode    String              @db.VarChar(40)
+  projectCodeId  String?             @db.Uuid
+  plantId        String?             @db.Uuid
+  mixDesignCode  String              @db.VarChar(60)
+  volumeM3       Decimal             @db.Decimal
+  requiredAt     DateTime
+  status         ConcreteOrderStatus @default(PENDING)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Project?            @relation(fields: [projectCodeId], references: [id], onDelete: SetNull)
+  plant          OrganizationPlant?  @relation(fields: [plantId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([organizationId, projectCodeId, status])
+  @@index([plantId, requiredAt])
 }
 
 model TaskChecklistItem {
@@ -407,16 +556,19 @@ model TaskComment {
 }
 
 model AuditLog {
-  id         String   @id @default(uuid()) @db.Uuid
-  actorId    String?  @db.Uuid
-  action     String   @db.VarChar(120)
-  entityType String   @db.VarChar(80)
-  entityId   String?  @db.VarChar(80)
-  metadata   Json?
-  ipAddress  String?  @db.VarChar(64)
-  createdAt  DateTime @default(now())
-  actor      User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String?       @db.Uuid
+  actorId        String?       @db.Uuid
+  action         String        @db.VarChar(120)
+  entityType     String        @db.VarChar(80)
+  entityId       String?       @db.VarChar(80)
+  metadata       Json?
+  ipAddress      String?       @db.VarChar(64)
+  createdAt      DateTime      @default(now())
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actor          User?         @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
+  @@index([organizationId, entityType, entityId])
   @@index([entityType, entityId])
   @@index([actorId, createdAt])
 }

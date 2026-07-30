@@ -4,12 +4,11 @@ import { resolve } from 'node:path'
 
 config({ path: resolve(process.cwd(), '../../.env'), quiet: true })
 
-const apiOrigin = new URL(
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1',
-).origin
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL ?? '/api/v1'
+const apiConnectSource = configuredApiUrl.startsWith('/') ? '' : new URL(configuredApiUrl).origin
 
 const securityHeaders = [
-  { key: 'Content-Security-Policy', value: `default-src 'self'; connect-src 'self' ${apiOrigin}; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob: https:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'` },
+  { key: 'Content-Security-Policy', value: `default-src 'self'; connect-src 'self'${apiConnectSource ? ` ${apiConnectSource}` : ''}; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'self'` },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },

@@ -8,7 +8,15 @@ param(
   [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
   [string]$EnvironmentFile,
 
-  [string]$ComposeFile = (Join-Path (Split-Path -Parent $PSScriptRoot) 'infra/compose.production.yaml')
+  [string]$ComposeFile = (Join-Path (Split-Path -Parent $PSScriptRoot) 'infra/compose.production.yaml'),
+
+  [switch]$NonInteractive,
+
+  [ValidateRange(0, 3650)]
+  [int]$RetentionDays = 0,
+
+  [ValidateRange(1, 365)]
+  [int]$MinimumBackups = 7
 )
 
 Set-StrictMode -Version Latest
@@ -61,9 +69,11 @@ if (-not (Test-Path -LiteralPath $resolvedOutput)) {
   New-Item -ItemType Directory -Path $resolvedOutput | Out-Null
 }
 
-$confirmation = Read-Host "Se creará un backup PostgreSQL en '$resolvedOutput'. Escriba BACKUP para continuar"
-if ($confirmation -cne 'BACKUP') {
-  throw 'Backup cancelado: confirmación incorrecta.'
+if (-not $NonInteractive) {
+  $confirmation = Read-Host "Se creará un backup PostgreSQL en '$resolvedOutput'. Escriba BACKUP para continuar"
+  if ($confirmation -cne 'BACKUP') {
+    throw 'Backup cancelado: confirmación incorrecta.'
+  }
 }
 
 $composeArgs = @('compose', '--env-file', $EnvironmentFile, '-f', $ComposeFile)
@@ -90,5 +100,49 @@ try {
 $hash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Set-Content -LiteralPath "$outputPath.sha256" -Value "$hash  $fileName" -Encoding ascii
 
+$removedBackups = 0
+if ($RetentionDays -gt 0) {
+  $cutoff = [DateTime]::UtcNow.AddDays(-$RetentionDays)
+  $backups = @(Get-ChildItem -LiteralPath $resolvedOutput -File -Filter 'opeconca-postgres-*.dump' |
+    Sort-Object LastWriteTimeUtc -Descending)
+  $validBackups = @()
+  $invalidBackups = @()
+
+  foreach ($backup in $backups) {
+    $backupChecksumPath = "$($backup.FullName).sha256"
+    if (-not (Test-Path -LiteralPath $backupChecksumPath -PathType Leaf)) {
+      $invalidBackups += "$($backup.Name) (sin checksum)"
+      continue
+    }
+    try {
+      $expectedHash = ((Get-Content -LiteralPath $backupChecksumPath -Raw).Trim() -split '\s+')[0]
+      $actualHash = (Get-FileHash -LiteralPath $backup.FullName -Algorithm SHA256).Hash
+      if (-not $expectedHash -or $actualHash -ine $expectedHash) {
+        $invalidBackups += "$($backup.Name) (checksum inválido)"
+        continue
+      }
+      $validBackups += $backup
+    } catch {
+      $invalidBackups += "$($backup.Name) (no verificable)"
+    }
+  }
+
+  if ($invalidBackups.Count -gt 0) {
+    throw "Retención cancelada: hay backups huérfanos o inválidos que requieren cuarentena: $($invalidBackups -join ', ')."
+  }
+
+  $eligible = @($validBackups | Select-Object -Skip $MinimumBackups | Where-Object {
+    $_.LastWriteTimeUtc -lt $cutoff
+  })
+  foreach ($backup in $eligible) {
+    Remove-Item -LiteralPath "$($backup.FullName).sha256" -Force
+    Remove-Item -LiteralPath $backup.FullName -Force
+    $removedBackups += 1
+  }
+}
+
 Write-Host "Backup creado: $outputPath" -ForegroundColor Green
 Write-Host "Checksum creado: $outputPath.sha256"
+if ($RetentionDays -gt 0) {
+  Write-Host "Retención aplicada: $removedBackups backup(s) completo(s) eliminado(s); se conservaron al menos $MinimumBackups."
+}

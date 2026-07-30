@@ -1,3 +1,4 @@
+import { clearFieldStores, deleteFieldRecord, deleteFieldRecordsWhereAtomically, fieldStores, getAllFieldRecords, getFieldRecord, putFieldRecord, putFieldRecordsAtomically } from './fieldDatabase'
 import type {
   FieldProject,
   LocalFieldReport,
@@ -6,135 +7,60 @@ import type {
   SessionIdentity,
 } from '../types/fieldReports'
 
-const DATABASE_NAME = 'salida-lista'
-const DATABASE_VERSION = 2
-const REPORT_STORE = 'field-reports'
-const OUTBOX_STORE = 'outbox'
-const SESSION_STORE = 'session-metadata'
-const APP_STATE_STORE = 'app-state'
-const IDENTITY_KEY = 'identity'
+const IDENTITY_KEY = 'current'
 
-interface MetadataRecord<T> {
+interface IdentityRecord {
   key: string
-  value: T
+  value: SessionIdentity
   updatedAt: string
 }
 
-function openDatabase(): Promise<IDBDatabase> {
-  if (!('indexedDB' in window)) {
-    return Promise.reject(new Error('Este navegador no admite almacenamiento IndexedDB.'))
-  }
-
-  return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(DATABASE_NAME, DATABASE_VERSION)
-    request.onupgradeneeded = () => {
-      const database = request.result
-      if (!database.objectStoreNames.contains(APP_STATE_STORE)) {
-        database.createObjectStore(APP_STATE_STORE, { keyPath: 'key' })
-      }
-      if (!database.objectStoreNames.contains(REPORT_STORE)) {
-        database.createObjectStore(REPORT_STORE, { keyPath: 'localId' })
-      }
-      if (!database.objectStoreNames.contains(OUTBOX_STORE)) {
-        database.createObjectStore(OUTBOX_STORE, { keyPath: 'localId' })
-      }
-      if (!database.objectStoreNames.contains(SESSION_STORE)) {
-        database.createObjectStore(SESSION_STORE, { keyPath: 'key' })
-      }
-    }
-    request.onsuccess = () => {
-      const database = request.result
-      database.onversionchange = () => database.close()
-      resolve(database)
-    }
-    request.onerror = () => reject(new Error('No pudimos abrir los datos de reportes de campo.'))
-    request.onblocked = () => reject(new Error('Cierra otras pestañas para actualizar el almacenamiento local.'))
-  })
-}
-
-async function getRecord<T>(storeName: string, key: IDBValidKey): Promise<T | undefined> {
-  const database = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(storeName, 'readonly')
-    const request = transaction.objectStore(storeName).get(key)
-    request.onsuccess = () => resolve(request.result as T | undefined)
-    request.onerror = () => reject(new Error('No pudimos leer los datos locales de campo.'))
-    transaction.oncomplete = () => database.close()
-    transaction.onabort = () => reject(new Error('La lectura local fue cancelada.'))
-  })
-}
-
-async function getAllRecords<T>(storeName: string): Promise<T[]> {
-  const database = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(storeName, 'readonly')
-    const request = transaction.objectStore(storeName).getAll()
-    request.onsuccess = () => resolve(request.result as T[])
-    request.onerror = () => reject(new Error('No pudimos listar los datos locales de campo.'))
-    transaction.oncomplete = () => database.close()
-    transaction.onabort = () => reject(new Error('La lectura local fue cancelada.'))
-  })
-}
-
-async function putRecord<T>(storeName: string, value: T): Promise<void> {
-  const database = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(storeName, 'readwrite')
-    transaction.objectStore(storeName).put(value)
-    transaction.oncomplete = () => {
-      database.close()
-      resolve()
-    }
-    transaction.onerror = () => reject(new Error('No pudimos guardar los datos de campo.'))
-    transaction.onabort = () => reject(new Error('El guardado local fue cancelado.'))
-  })
+interface ProjectsRecord {
+  key: string
+  ownerId: string
+  items: FieldProject[]
+  updatedAt: string
 }
 
 export async function loadCachedIdentity(): Promise<SessionIdentity | null> {
-  const record = await getRecord<MetadataRecord<SessionIdentity>>(SESSION_STORE, IDENTITY_KEY)
+  const record = await getFieldRecord<IdentityRecord>(fieldStores.identity, IDENTITY_KEY)
   return record?.value ?? null
 }
 
 export function cacheIdentity(identity: SessionIdentity): Promise<void> {
-  return putRecord(SESSION_STORE, {
+  return putFieldRecord(fieldStores.identity, {
     key: IDENTITY_KEY,
     value: identity,
     updatedAt: new Date().toISOString(),
-  } satisfies MetadataRecord<SessionIdentity>)
-}
-
-function projectsKey(ownerId: string): string {
-  return `projects:${ownerId}`
+  } satisfies IdentityRecord)
 }
 
 export async function loadCachedProjects(ownerId: string): Promise<FieldProject[]> {
-  const record = await getRecord<MetadataRecord<FieldProject[]>>(SESSION_STORE, projectsKey(ownerId))
-  return record?.value ?? []
+  const record = await getFieldRecord<ProjectsRecord>(fieldStores.projects, ownerId)
+  return record?.items ?? []
 }
 
 export function cacheProjects(ownerId: string, projects: FieldProject[]): Promise<void> {
-  return putRecord(SESSION_STORE, {
-    key: projectsKey(ownerId),
-    value: projects,
+  return putFieldRecord(fieldStores.projects, {
+    key: ownerId,
+    ownerId,
+    items: projects,
     updatedAt: new Date().toISOString(),
-  } satisfies MetadataRecord<FieldProject[]>)
+  } satisfies ProjectsRecord)
 }
 
 export async function loadFieldReports(ownerId: string): Promise<LocalFieldReport[]> {
-  const reports = await getAllRecords<LocalFieldReport>(REPORT_STORE)
+  const reports = await getAllFieldRecords<LocalFieldReport>(fieldStores.reports)
   return reports
     .filter((report) => report.ownerId === ownerId)
     .sort((left, right) => right.payload.reportDate.localeCompare(left.payload.reportDate))
 }
 
 export function saveFieldReport(report: LocalFieldReport): Promise<void> {
-  return putRecord(REPORT_STORE, report)
+  return putFieldRecord(fieldStores.reports, report)
 }
 
-export async function cacheServerReports(
-  ownerId: string,
-  serverReports: ServerFieldReport[],
-): Promise<void> {
+export async function cacheServerReports(ownerId: string, serverReports: ServerFieldReport[]): Promise<void> {
   const localReports = await loadFieldReports(ownerId)
   const byKey = new Map(localReports.map((report) => [report.payload.idempotencyKey, report]))
   await Promise.all(serverReports.map((serverReport) => {
@@ -166,56 +92,130 @@ export async function cacheServerReports(
 
 export async function enqueueReport(report: LocalFieldReport): Promise<void> {
   const now = new Date().toISOString()
-  await saveFieldReport({ ...report, syncState: 'pending', updatedAt: now })
-  await putRecord(OUTBOX_STORE, {
+  const pendingReport = { ...report, syncState: 'pending' as const, updatedAt: now }
+  const outboxEntry: OutboxEntry = {
     localId: report.localId,
     ownerId: report.ownerId,
     attempts: 0,
     nextAttemptAt: now,
     createdAt: now,
-  } satisfies OutboxEntry)
+  }
+  await putFieldRecordsAtomically([
+    { storeName: fieldStores.reports, value: pendingReport },
+    { storeName: fieldStores.outbox, value: outboxEntry },
+  ])
+}
+
+function isReportOutboxEntry(value: unknown): value is OutboxEntry {
+  return typeof value === 'object' && value !== null && !('operation' in value)
 }
 
 export async function loadOutbox(ownerId: string): Promise<OutboxEntry[]> {
-  const entries = await getAllRecords<OutboxEntry>(OUTBOX_STORE)
+  const entries = await getAllFieldRecords<unknown>(fieldStores.outbox)
   return entries
+    .filter(isReportOutboxEntry)
     .filter((entry) => entry.ownerId === ownerId)
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
 }
 
 export function saveOutboxEntry(entry: OutboxEntry): Promise<void> {
-  return putRecord(OUTBOX_STORE, entry)
+  return putFieldRecord(fieldStores.outbox, entry)
 }
 
-export async function removeOutboxEntry(localId: string): Promise<void> {
-  const database = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(OUTBOX_STORE, 'readwrite')
-    transaction.objectStore(OUTBOX_STORE).delete(localId)
-    transaction.oncomplete = () => {
-      database.close()
-      resolve()
-    }
-    transaction.onerror = () => reject(new Error('No pudimos actualizar la cola local.'))
-    transaction.onabort = () => reject(new Error('La actualización de la cola fue cancelada.'))
-  })
+export function removeOutboxEntry(localId: string): Promise<void> {
+  return deleteFieldRecord(fieldStores.outbox, localId)
 }
 
-export async function clearFieldSessionData(): Promise<void> {
-  const database = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = database.transaction(
-      [REPORT_STORE, OUTBOX_STORE, SESSION_STORE],
-      'readwrite',
-    )
-    transaction.objectStore(REPORT_STORE).clear()
-    transaction.objectStore(OUTBOX_STORE).clear()
-    transaction.objectStore(SESSION_STORE).clear()
-    transaction.oncomplete = () => {
-      database.close()
-      resolve()
-    }
-    transaction.onerror = () => reject(new Error('No pudimos limpiar los datos operativos.'))
-    transaction.onabort = () => reject(new Error('La limpieza de datos fue cancelada.'))
+function belongsToOwner(value: unknown, ownerId: string): boolean {
+  return typeof value === 'object' && value !== null && 'ownerId' in value && value.ownerId === ownerId
+}
+
+function identityBelongsToOwner(value: unknown, ownerId: string): boolean {
+  if (typeof value !== 'object' || value === null || !('value' in value)) return false
+  const identity = value.value
+  return typeof identity === 'object' && identity !== null && 'id' in identity && identity.id === ownerId
+}
+
+function enterpriseOperationKind(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null || !('operation' in value)) return undefined
+  const operation = value.operation
+  return typeof operation === 'object' && operation !== null && 'kind' in operation && typeof operation.kind === 'string'
+    ? operation.kind
+    : undefined
+}
+
+export function reconcileFieldAuthorizationData(ownerId: string, permissions: readonly string[]): Promise<void> {
+  const allowed = new Set(permissions)
+  const filters: Array<{ storeName: string; matches: (value: unknown) => boolean }> = []
+  if (!allowed.has('projects.read')) {
+    filters.push({ storeName: fieldStores.projects, matches: (value) => belongsToOwner(value, ownerId) })
+  }
+  if (!allowed.has('fieldReports.read')) {
+    filters.push({ storeName: fieldStores.reports, matches: (value) => belongsToOwner(value, ownerId) })
+  } else if (!allowed.has('fieldReports.create')) {
+    filters.push({
+      storeName: fieldStores.reports,
+      matches: (value) => belongsToOwner(value, ownerId)
+        && typeof value === 'object' && value !== null && 'syncState' in value && value.syncState !== 'synced',
+    })
+  }
+  if (!allowed.has('publications.read')) {
+    filters.push({ storeName: fieldStores.publications, matches: (value) => belongsToOwner(value, ownerId) })
+  }
+  if (!allowed.has('tasks.read')) {
+    filters.push({ storeName: fieldStores.tasks, matches: (value) => belongsToOwner(value, ownerId) })
+  }
+  filters.push({
+    storeName: fieldStores.outbox,
+    matches: (value) => {
+      if (!belongsToOwner(value, ownerId)) return false
+      const kind = enterpriseOperationKind(value)
+      if (!kind) return !allowed.has('fieldReports.read') || !allowed.has('fieldReports.create')
+      if (kind === 'publication.acknowledge') return !allowed.has('publications.read')
+      if (kind === 'task.transition') return !allowed.has('tasks.read')
+      return true
+    },
   })
+  return deleteFieldRecordsWhereAtomically(filters)
+}
+
+export function clearFieldSessionData(ownerId?: string): Promise<void> {
+  if (!ownerId) {
+    return clearFieldStores([
+      fieldStores.identity,
+      fieldStores.projects,
+      fieldStores.publications,
+      fieldStores.tasks,
+      fieldStores.reports,
+      fieldStores.outbox,
+      fieldStores.legacySession,
+    ])
+  }
+
+  const ownedStores = [
+    fieldStores.projects,
+    fieldStores.publications,
+    fieldStores.tasks,
+    fieldStores.reports,
+    fieldStores.outbox,
+  ]
+  return deleteFieldRecordsWhereAtomically([
+    { storeName: fieldStores.identity, matches: (value) => identityBelongsToOwner(value, ownerId) },
+    ...ownedStores.map((storeName) => ({
+      storeName,
+      matches: (value: unknown) => belongsToOwner(value, ownerId),
+    })),
+    {
+      storeName: fieldStores.legacySession,
+      matches: (value) => {
+        if (identityBelongsToOwner(value, ownerId)) return true
+        return typeof value === 'object' && value !== null && 'key' in value
+          && value.key === `projects:${ownerId}`
+      },
+    },
+  ])
+}
+
+export function clearCachedIdentity(): Promise<void> {
+  return deleteFieldRecord(fieldStores.identity, IDENTITY_KEY)
 }

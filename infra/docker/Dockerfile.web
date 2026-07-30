@@ -1,21 +1,33 @@
 # syntax=docker/dockerfile:1
-FROM node:24.11.1-bookworm-slim AS build
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
 
 RUN corepack enable && corepack prepare pnpm@11.17.0 --activate
 WORKDIR /workspace
 COPY . .
 
 RUN pnpm install --frozen-lockfile
-ARG NEXT_PUBLIC_API_URL
-RUN test -n "$NEXT_PUBLIC_API_URL"
+ARG NEXT_PUBLIC_API_URL=/api/v1
+ARG ALLOW_INSECURE_LOCAL_API=false
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+RUN node -e "const configured = process.env.NEXT_PUBLIC_API_URL; if (configured === '/api/v1') process.exit(0); const url = new URL(configured); const local = ['localhost', '127.0.0.1'].includes(url.hostname); if (url.protocol !== 'https:' && !(process.env.ALLOW_INSECURE_LOCAL_API === 'true' && local)) throw new Error('NEXT_PUBLIC_API_URL must be /api/v1 or use HTTPS outside local development')"
 RUN pnpm --filter @opeconca/contracts build \
     && pnpm --filter @opeconca/web build \
     && pnpm --filter @opeconca/web deploy --prod --legacy /opt/web \
     && cp -R apps/web/.next /opt/web/.next \
     && if [ -d apps/web/public ]; then cp -R apps/web/public /opt/web/public; fi
 
-FROM node:24.11.1-bookworm-slim AS runtime
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime
+
+RUN rm -rf /opt/yarn* \
+        /usr/local/lib/node_modules/npm \
+        /usr/local/lib/node_modules/corepack \
+        /usr/local/bin/npm \
+        /usr/local/bin/npx \
+        /usr/local/bin/corepack \
+        /usr/local/bin/yarn \
+        /usr/local/bin/yarnpkg \
+        /usr/local/bin/pnpm \
+        /usr/local/bin/pnpx
 
 ENV NODE_ENV=production \
     PORT=3000 \

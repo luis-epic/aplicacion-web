@@ -25,5 +25,7 @@ load_secret() {
 load_secret DATABASE_URL "${DATABASE_URL_FILE:-}"
 load_secret JWT_ACCESS_SECRET "${JWT_ACCESS_SECRET_FILE:-}"
 load_secret JWT_REFRESH_SECRET "${JWT_REFRESH_SECRET_FILE:-}"
+load_secret METRICS_TOKEN "${METRICS_TOKEN_FILE:-}"
+load_secret ADMIN_PASSWORD "${ADMIN_PASSWORD_FILE:-}"
 
 exec "$@"

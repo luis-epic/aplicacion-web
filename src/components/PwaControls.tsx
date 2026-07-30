@@ -5,8 +5,15 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
 }
 
+interface SyncStateDetail {
+  pendingCount: number
+  lastSyncAt: string | null
+  mode: 'loading' | 'signed-out' | 'online' | 'offline'
+}
+
 export function PwaControls() {
   const [isOnline, setIsOnline] = useState(navigator.onLine)
+  const [syncState, setSyncState] = useState<SyncStateDetail>({ pendingCount: 0, lastSyncAt: null, mode: 'loading' })
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null)
   const [updateWorker, setUpdateWorker] = useState<ServiceWorker | null>(null)
   const [message, setMessage] = useState('')
@@ -40,9 +47,13 @@ export function PwaControls() {
     const handleControllerChange = () => {
       if (applyingUpdate.current) window.location.reload()
     }
+    const handleSyncState = (event: Event) => {
+      setSyncState((event as CustomEvent<SyncStateDetail>).detail)
+    }
 
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    window.addEventListener('opeconca-sync-state', handleSyncState)
     window.addEventListener('beforeinstallprompt', handleInstallPrompt)
     window.addEventListener('appinstalled', handleInstalled)
     navigator.serviceWorker?.addEventListener('controllerchange', handleControllerChange)
@@ -70,6 +81,7 @@ export function PwaControls() {
       window.clearTimeout(messageTimeout)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('opeconca-sync-state', handleSyncState)
       window.removeEventListener('beforeinstallprompt', handleInstallPrompt)
       window.removeEventListener('appinstalled', handleInstalled)
       navigator.serviceWorker?.removeEventListener('controllerchange', handleControllerChange)
@@ -94,7 +106,16 @@ export function PwaControls() {
     return (
       <div aria-live="polite" className="pwa-control offline" role="status">
         <span className="pwa-status-dot" />
-        <div><strong>Estás sin conexión</strong><p>Rutinas, checklist y reglas locales siguen disponibles.</p></div>
+        <div><strong>Estás sin conexión</strong><p>{syncState.pendingCount ? `${syncState.pendingCount} cambios esperan sincronización.` : 'Actualidad, tareas, reportes y datos ambientales guardados siguen disponibles.'}</p></div>
+      </div>
+    )
+  }
+
+  if (syncState.pendingCount > 0) {
+    return (
+      <div aria-live="polite" className="pwa-control message" role="status">
+        <span className="pwa-status-dot" />
+        <div><strong>Sincronización operativa</strong><p>{syncState.pendingCount} cambios pendientes; se reintentarán automáticamente.</p></div>
       </div>
     )
   }

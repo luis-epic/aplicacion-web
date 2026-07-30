@@ -8,6 +8,13 @@ const Trim = () => Transform(({ value }: { value: unknown }) => (
   typeof value === 'string' ? value.trim() : value
 ))
 
+export class TaskAssignmentCandidatesQueryDto extends PageQueryDto {
+  @ApiPropertyOptional({ format: 'uuid' })
+  @IsUUID('4')
+  @IsOptional()
+  projectId?: string
+}
+
 export class TaskQueryDto extends PageQueryDto {
   @ApiPropertyOptional({ description: 'Limita el resultado a tareas creadas, asignadas o supervisadas por el usuario.' })
   @Transform(({ value }: { value: unknown }) => value === 'true' ? true : value === 'false' ? false : value)

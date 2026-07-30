@@ -80,7 +80,7 @@ try {
   writeFileSync(
     resolve(publicationMediaDirectory, 'integration/boletin.png'),
     Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64'),
-    { mode: 0o600 },
+    { mode: 0o644 },
   )
   writeFileSync(envFile, `${Object.entries(generated).map(([key, value]) => `${key}=${value}`).join('\n')}\n`, { mode: 0o600 })
   const buildArguments = process.env.TEST_SKIP_BUILD === 'true' ? [] : ['--build']

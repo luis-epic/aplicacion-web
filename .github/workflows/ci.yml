@@ -134,4 +134,4 @@ jobs:
           retention-days: 90
       - name: Cleanup isolated environment
         if: always()
-        run: docker compose --project-name opeconca-test -f infra/compose.test.yaml down --volumes --remove-orphans
+        run: TEST_PUBLICATION_MEDIA_PATH="$PWD" docker compose --project-name opeconca-test -f infra/compose.test.yaml down --volumes --remove-orphans

@@ -42,9 +42,11 @@ export interface FieldReportView {
 export class FieldReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: FieldReportQueryDto): Promise<PageResult<FieldReportView>> {
+  async list(query: FieldReportQueryDto, actor: SessionUser): Promise<PageResult<FieldReportView>> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
     const search = query.search?.trim()
     const where: Prisma.FieldReportWhereInput = {
+      organizationId,
       projectId: query.projectId,
       authorId: query.authorId,
       status: query.status,
@@ -61,14 +63,18 @@ export class FieldReportsService {
     return { items: items.map((item) => this.toView(item)), page: query.page, pageSize: query.pageSize, total }
   }
 
-  async get(id: string): Promise<FieldReportView> {
-    return this.toView(await this.getRecord(this.prisma, id))
+  async get(id: string, actor: SessionUser): Promise<FieldReportView> {
+    const organizationId = await requireActiveOrganizationId(this.prisma, actor)
+    return this.toView(await this.getRecord(this.prisma, id, organizationId))
   }
 
   async create(dto: CreateFieldReportDto, actor: SessionUser): Promise<FieldReportView> {
     const organizationId = await requireActiveOrganizationId(this.prisma, actor)
-    const prior = await this.prisma.fieldReport.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: reportInclude })
-    if (prior) return this.resolveIdempotency(prior, actor.id)
+    const prior = await this.prisma.fieldReport.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId, idempotencyKey: dto.idempotencyKey } },
+      include: reportInclude,
+    })
+    if (prior) return this.resolveIdempotency(prior, actor.id, organizationId)
 
     try {
       const report = await this.prisma.$transaction(async (tx) => {
@@ -95,15 +101,22 @@ export class FieldReportsService {
           },
           include: reportInclude,
         })
-        await tx.auditLog.create({ data: { action: 'fieldReport.created', actorId: actor.id, entityId: created.id, entityType: 'FieldReport', metadata: { projectId: dto.projectId, idempotencyKey: dto.idempotencyKey } } })
-        return this.getRecord(tx, created.id)
+        await tx.auditLog.create({ data: {
+          organizationId,
+          action: 'fieldReport.created', actorId: actor.id, entityId: created.id, entityType: 'FieldReport',
+          metadata: { projectId: dto.projectId, idempotencyKey: dto.idempotencyKey },
+        } })
+        return this.getRecord(tx, created.id, organizationId)
       })
       return this.toView(report)
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof ForbiddenException) throw error
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        const existing = await this.prisma.fieldReport.findUnique({ where: { idempotencyKey: dto.idempotencyKey }, include: reportInclude })
-        if (existing) return this.resolveIdempotency(existing, actor.id)
+        const existing = await this.prisma.fieldReport.findUnique({
+          where: { organizationId_idempotencyKey: { organizationId, idempotencyKey: dto.idempotencyKey } },
+          include: reportInclude,
+        })
+        if (existing) return this.resolveIdempotency(existing, actor.id, organizationId)
       }
       throw error
     }
@@ -111,7 +124,8 @@ export class FieldReportsService {
 
   async update(id: string, dto: UpdateFieldReportDto, actor: SessionUser): Promise<FieldReportView> {
     const report = await this.prisma.$transaction(async (tx) => {
-      const current = await this.getRecord(tx, id)
+      const organizationId = await requireActiveOrganizationId(tx, actor)
+      const current = await this.getRecord(tx, id, organizationId)
       this.assertAuthor(current, actor.id)
       this.assertStatus(current.status, [ReportStatus.DRAFT], 'Sólo puede editarse un reporte en borrador.')
       const updated = await tx.fieldReport.update({ where: { id }, data: {
@@ -123,7 +137,7 @@ export class FieldReportsService {
         incidentNotes: dto.incidentNotes === null ? null : dto.incidentNotes?.trim(),
         clientUpdatedAt: new Date(dto.clientUpdatedAt),
       }, include: reportInclude })
-      await tx.auditLog.create({ data: { action: 'fieldReport.updated', actorId: actor.id, entityId: id, entityType: 'FieldReport', metadata: { fields: Object.keys(dto) } } })
+      await tx.auditLog.create({ data: { organizationId, action: 'fieldReport.updated', actorId: actor.id, entityId: id, entityType: 'FieldReport', metadata: { fields: Object.keys(dto) } } })
       return updated
     })
     return this.toView(report)
@@ -131,21 +145,23 @@ export class FieldReportsService {
 
   async remove(id: string, actor: SessionUser): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
-      const report = await this.getRecord(tx, id)
+      const organizationId = await requireActiveOrganizationId(tx, actor)
+      const report = await this.getRecord(tx, id, organizationId)
       this.assertAuthor(report, actor.id)
       this.assertStatus(report.status, [ReportStatus.DRAFT], 'Sólo puede eliminarse un reporte en borrador.')
       await tx.fieldReport.delete({ where: { id } })
-      await tx.auditLog.create({ data: { action: 'fieldReport.deleted', actorId: actor.id, entityId: id, entityType: 'FieldReport', metadata: { projectId: report.projectId } } })
+      await tx.auditLog.create({ data: { organizationId, action: 'fieldReport.deleted', actorId: actor.id, entityId: id, entityType: 'FieldReport', metadata: { projectId: report.projectId } } })
     })
   }
 
   async submit(id: string, actor: SessionUser): Promise<FieldReportView> {
     const report = await this.prisma.$transaction(async (tx) => {
-      const current = await this.getRecord(tx, id)
+      const organizationId = await requireActiveOrganizationId(tx, actor)
+      const current = await this.getRecord(tx, id, organizationId)
       this.assertAuthor(current, actor.id)
       this.assertStatus(current.status, [ReportStatus.DRAFT], 'Sólo puede enviarse un reporte en borrador.')
       const updated = await tx.fieldReport.update({ where: { id }, data: { status: ReportStatus.SUBMITTED, submittedAt: new Date(), approverId: null, approvedAt: null }, include: reportInclude })
-      await tx.auditLog.create({ data: { action: 'fieldReport.submitted', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
+      await tx.auditLog.create({ data: { organizationId, action: 'fieldReport.submitted', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
       return updated
     })
     return this.toView(report)
@@ -153,11 +169,12 @@ export class FieldReportsService {
 
   async approve(id: string, actor: SessionUser): Promise<FieldReportView> {
     const report = await this.prisma.$transaction(async (tx) => {
-      const current = await this.getRecord(tx, id)
+      const organizationId = await requireActiveOrganizationId(tx, actor)
+      const current = await this.getRecord(tx, id, organizationId)
       if (current.authorId === actor.id) throw new ForbiddenException('No puedes aprobar tu propio reporte.')
       this.assertStatus(current.status, [ReportStatus.SUBMITTED], 'Sólo puede aprobarse un reporte enviado.')
       const updated = await tx.fieldReport.update({ where: { id }, data: { status: ReportStatus.APPROVED, approverId: actor.id, approvedAt: new Date() }, include: reportInclude })
-      await tx.auditLog.create({ data: { action: 'fieldReport.approved', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
+      await tx.auditLog.create({ data: { organizationId, action: 'fieldReport.approved', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
       return updated
     })
     return this.toView(report)
@@ -165,23 +182,26 @@ export class FieldReportsService {
 
   async reject(id: string, actor: SessionUser): Promise<FieldReportView> {
     const report = await this.prisma.$transaction(async (tx) => {
-      const current = await this.getRecord(tx, id)
+      const organizationId = await requireActiveOrganizationId(tx, actor)
+      const current = await this.getRecord(tx, id, organizationId)
       this.assertStatus(current.status, [ReportStatus.SUBMITTED], 'Sólo puede rechazarse un reporte enviado.')
       const updated = await tx.fieldReport.update({ where: { id }, data: { status: ReportStatus.REJECTED, approverId: actor.id, approvedAt: null }, include: reportInclude })
-      await tx.auditLog.create({ data: { action: 'fieldReport.rejected', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
+      await tx.auditLog.create({ data: { organizationId, action: 'fieldReport.rejected', actorId: actor.id, entityId: id, entityType: 'FieldReport' } })
       return updated
     })
     return this.toView(report)
   }
 
-  private async getRecord(tx: Prisma.TransactionClient | PrismaService, id: string): Promise<ReportRecord> {
-    const report = await tx.fieldReport.findUnique({ where: { id }, include: reportInclude })
+  private async getRecord(tx: Prisma.TransactionClient | PrismaService, id: string, organizationId: string): Promise<ReportRecord> {
+    const report = await tx.fieldReport.findFirst({ where: { id, organizationId }, include: reportInclude })
     if (!report) throw new NotFoundException('Reporte de campo no encontrado.')
     return report
   }
 
-  private resolveIdempotency(report: ReportRecord, authorId: string): FieldReportView {
-    if (report.authorId !== authorId) throw new ConflictException('La clave de idempotencia ya fue utilizada por otro autor.')
+  private resolveIdempotency(report: ReportRecord, authorId: string, organizationId: string): FieldReportView {
+    if (report.organizationId !== organizationId || report.authorId !== authorId) {
+      throw new ConflictException('La clave de idempotencia ya fue utilizada.')
+    }
     return this.toView(report)
   }
 

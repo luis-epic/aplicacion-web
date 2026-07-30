@@ -394,7 +394,7 @@ model FieldReport {
   submittedAt     DateTime?
   approvedAt      DateTime?
   clientUpdatedAt DateTime
-  idempotencyKey  String       @unique @db.Uuid
+  idempotencyKey  String       @db.Uuid
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -403,6 +403,7 @@ model FieldReport {
   approver        User?        @relation("ReportApprover", fields: [approverId], references: [id], onDelete: Restrict)
   attachments     Attachment[]
 
+  @@unique([organizationId, idempotencyKey])
   @@index([organizationId, projectId, reportDate])
   @@index([organizationId, authorId, status])
   @@index([projectId, reportDate])

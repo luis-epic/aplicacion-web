@@ -14,13 +14,13 @@ export class FieldReportsController {
 
   @Get()
   @RequirePermissions('fieldReports.read')
-  @ApiOperation({ summary: 'Lista reportes de campo con filtros y paginación' })
-  list(@Query() query: FieldReportQueryDto): Promise<PageResult<FieldReportView>> { return this.reports.list(query) }
+  @ApiOperation({ summary: 'Lista reportes de campo de la organización activa con filtros y paginación' })
+  list(@Query() query: FieldReportQueryDto, @CurrentUser() actor: SessionUser): Promise<PageResult<FieldReportView>> { return this.reports.list(query, actor) }
 
   @Get(':id')
   @RequirePermissions('fieldReports.read')
-  @ApiOperation({ summary: 'Obtiene un reporte de campo' })
-  get(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string): Promise<FieldReportView> { return this.reports.get(id) }
+  @ApiOperation({ summary: 'Obtiene un reporte de campo de la organización activa' })
+  get(@Param('id', new ParseUUIDPipe({ version: '4' })) id: string, @CurrentUser() actor: SessionUser): Promise<FieldReportView> { return this.reports.get(id, actor) }
 
   @Post()
   @RequirePermissions('fieldReports.create')

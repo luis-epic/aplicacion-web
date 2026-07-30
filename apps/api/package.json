@@ -41,7 +41,7 @@
     "@nestjs/cli": "11.0.24",
     "@types/cookie-parser": "1.4.10",
     "@types/express": "5.0.6",
-    "@types/node": "24.13.2",
+    "@types/node": "26.1.2",
     "oxlint": "1.71.0",
     "prisma": "6.19.1",
     "tsx": "4.23.1",

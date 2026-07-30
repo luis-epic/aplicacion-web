@@ -61,8 +61,8 @@ importers:
         specifier: 1.71.0
         version: 1.71.0
       pnpm:
-        specifier: 11.17.0
-        version: 11.17.0
+        specifier: 11.18.0
+        version: 11.18.0
       turbo:
         specifier: 2.10.7
         version: 2.10.7
@@ -2514,8 +2514,8 @@ packages:
     resolution: {integrity: sha512-Nc3IT5yHzflTfbjgqWcCPpo7DaKy4FnpB0l/zCAW0Tc7jxAiuqSxHasntB3D7887LSrA93kDJ9IXovxJYxyLCA==}
     engines: {node: '>=4'}
 
-  pnpm@11.17.0:
-    resolution: {integrity: sha512-zKPOozKtJUu4QUX5ZtGfSHlhUhA0b8kseaBH8joNezzKPDeS8AdrofGDHSd++88KkRmzGppg7Kf7PWIx8zHvcg==}
+  pnpm@11.18.0:
+    resolution: {integrity: sha512-M9g8d9qC9J+6g2klxvG4QRgewxMrZwY5vQEvcHX1x89jTF+HAUfBmq50ePrAHfCdiJLogEVIlu3SPumzN1dWPA==}
     engines: {node: '>=22.13'}
     hasBin: true
 
@@ -5158,7 +5158,7 @@ snapshots:
 
   pluralize@8.0.0: {}
 
-  pnpm@11.17.0: {}
+  pnpm@11.18.0: {}
 
   postcss@8.5.23:
     dependencies:

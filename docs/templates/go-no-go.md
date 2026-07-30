@@ -34,6 +34,16 @@ Estados permitidos: **GO**, **NO-GO**, **VALIDADO_LOCAL**, **PENDIENTE_EXTERNO**
 | Piloto de dispositivos | Piloto real |  |  |  |
 | Plan de migración y rollback ensayado | Local/externo |  |  |  |
 
+## Perfil comercial recomendado para piloto (pendiente de aceptación)
+
+Esta guía no representa un contrato, un precio aprobado ni una aprobación del cliente. Use los siguientes límites como propuesta inicial y sustitúyalos únicamente por condiciones aceptadas y trazables:
+
+- Piloto de cuatro semanas, limitado a un equipo, flujo prioritario y participantes autorizados; no incluye procesos financieros, operaciones críticas ni datos sensibles.
+- Acta o acuerdo breve con alcance, periodo, usuarios/dispositivos por alias, red controlada, datos permitidos, canal de soporte, severidades, criterios de éxito y decisión de cierre.
+- Validar disposición real de continuidad o pago mediante un piloto pagado o una tarifa nominal acreditable a contratación posterior. El precio definitivo se define después de observar valor, adopción y coste de soporte.
+- Mantener **NO-GO** si hay una incidencia P1 sin resolver, pérdida o acceso indebido a datos, ausencia de responsables/aprobaciones o exposición pública no autorizada.
+- La decisión del piloto sólo puede ser **CONTINUAR**, **ITERAR** o **DETENER**. Ninguna de esas decisiones autoriza producción pública.
+
 ## Preparación comercial y de piloto
 
 | Criterio | Estado | Evidencia | Responsable |

@@ -34,6 +34,7 @@ Un control externo sólo queda cerrado con **VALIDADO_EXTERNO**. Esta acta no su
 | Migraciones y catálogo RBAC | Local |  |  |  |  |
 | Readiness/live y métricas privadas | Local |  |  |  |  |
 | TLS, HSTS y `/api/v1` same-origin desde fuera de la red | Externo |  |  |  |  |
+| Acceso de piloto limitado a red local/VPN y participantes autorizados | Local/piloto |  |  |  |  |
 | Login, refresh, logout y bootstrap retirado | Local |  |  |  |  |
 | Revocación de rol bloquea y purga PWA | Local/piloto |  |  |  |  |
 | Publicación con portada corporativa/fallback | Local |  |  |  |  |

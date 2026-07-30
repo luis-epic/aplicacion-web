@@ -4,6 +4,17 @@
 
 Esta acta recoge evidencia de participantes reales. No marque escenarios, métricas ni aprobaciones sin una ejecución observada. Un piloto aprobado no habilita producción pública: esa decisión sigue el acta `go-no-go.md` y el checklist de release.
 
+## Perfil operativo recomendado (pendiente de aceptación)
+
+Use este perfil como punto de partida. No convierte campos vacíos en acuerdos, no autoriza usuarios reales y debe ser aceptado por los responsables de negocio, operación, técnica y seguridad/datos antes de iniciar.
+
+- **Alcance:** un equipo, un flujo prioritario y una ubicación o contexto operativo controlado. Excluya procesos financieros, operaciones críticas y datos sensibles de esta primera iteración.
+- **Duración y muestra:** cuatro semanas: una de preparación y onboarding, dos de uso supervisado y una de cierre. Recomendar 8–12 participantes de campo, 2 supervisores y 1–2 usuarios administrativos, siempre identificados por alias autorizados.
+- **Responsabilidades:** asigne un patrocinador de negocio, responsable operativo, responsable técnico y suplente, punto de soporte y responsable de seguridad/datos. Una persona puede asumir varios roles en un piloto pequeño, pero cada responsabilidad requiere titular y suplente.
+- **Acceso:** mantenga staging sin exposición pública; admita sólo red local controlada o VPN aprobada y cuentas individuales con mínimo privilegio. No use cuentas compartidas.
+- **Dispositivos:** prefiera equipos corporativos administrados. Para BYOD, exija bloqueo de pantalla, sistema/navegador soportado y actualizado, cifrado cuando esté disponible y aprobación expresa de la política de datos. Ante pérdida o robo, deshabilite cuenta/sesión y acceso VPN; declare borrado remoto únicamente si MDM o el dispositivo lo soporta y se verificó.
+- **Preparación comercial:** documente un acta breve con alcance, periodo, soporte, datos permitidos y criterios de salida. Recomendar un piloto pagado o con tarifa nominal acreditable a un contrato posterior; no fije precio final ni declare disposición de pago sin evidencia de valor y aceptación del cliente.
+
 ## Alcance y responsables
 
 - Release/SHA y URL de staging:
@@ -28,6 +39,19 @@ No registre IMEI, teléfono, correo ni otros identificadores personales en esta 
 - Política para dispositivos BYOD aprobada: Sí / No / Pendiente
 - Pérdida o robo: contacto y procedimiento de revocación/borrado:
 - Dispositivos que no cumplen controles mínimos y su tratamiento:
+
+## Metas iniciales recomendadas (pendientes de acuerdo)
+
+Estas metas sirven para preparar la conversación con el cliente. Mida la línea base durante los primeros tres días y sustituya los valores sólo por metas aceptadas y proporcionadas a la muestra.
+
+| Métrica | Meta inicial recomendada | Condición de medición |
+| --- | --- | --- |
+| Activación del primer flujo | ≥ 85 % de participantes autorizados durante la primera semana | Registro de piloto sin PII |
+| Sincronización tras recuperar red | ≥ 95 % en ≤ 15 minutos y 0 duplicados no resueltos | Escenarios offline→online y auditoría |
+| Tiempo de creación a aprobación | Reducción ≥ 20 % frente a línea base | Exportación operativa comparable |
+| Finalización autónoma del flujo | ≥ 80 % de participantes | Observación/entrevista de cierre |
+| Incidentes graves | 0 pérdidas de datos, accesos indebidos o P1 sin resolver al cierre | Registro de soporte e incidente |
+| Continuidad comercial | Decisión documentada sobre continuar, iterar o detener; hipótesis de pago evaluada | Entrevista con patrocinador de negocio |
 
 ## Métricas y criterios de éxito
 
@@ -70,6 +94,7 @@ Consulte `docs/runbooks/incident-observability.md`. No copie tokens, cookies, du
 - Incidencias bloqueantes y resolución:
 - Incidencias aceptadas (riesgo / propietario / vencimiento):
 - Aprendizajes de producto y cambios priorizados:
-- Decisión de piloto: **CONTINUAR / ITERAR / DETENER / PENDIENTE**
+- Estado antes del cierre: **PENDIENTE** (no es una decisión final).
+- Decisión final de piloto: **CONTINUAR / ITERAR / DETENER**
 - Resultado piloto: **PENDIENTE**
 - Aprobación usuarios / responsable / fecha UTC:

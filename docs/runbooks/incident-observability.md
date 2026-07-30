@@ -69,6 +69,18 @@ Antes de invitar participantes, el propietario debe completar y comunicar:
 
 No se asume un SLA comercial hasta que negocio y el cliente piloto lo acuerden. Ante un P1, notifique de inmediato a los responsables definidos, preserve evidencia y aplique la contención indicada; ante P2/P3, registre prioridad, impacto y siguiente actualización acordada.
 
+## Objetivos operativos recomendados (pendientes de acuerdo)
+
+Use estos objetivos internos para preparar el piloto y reemplácelos por el compromiso acordado. No constituyen un SLA hasta que negocio y el cliente piloto lo acepten por escrito.
+
+| Severidad | Cobertura propuesta | Primera respuesta | Objetivo de siguiente acción |
+| --- | --- | --- | --- |
+| P1 | Horario/cobertura acordado; notificación inmediata | ≤ 1 hora dentro de cobertura | Contención o plan de mitigación inmediato; escalar a técnica, negocio y seguridad/datos |
+| P2 | Horario laboral acordado | ≤ 4 horas laborales | Mitigación o actualización comprometida ≤ 1 día laboral |
+| P3 | Horario laboral acordado | Registro y acuse en el siguiente día laboral | Priorización y actualización semanal |
+
+El punto de contacto del piloto debe comunicar el horario y canal únicos antes de invitar participantes. Fuera de la cobertura acordada, registre la hora, preserve evidencia y aplique el procedimiento de escalamiento definido; no prometa atención continua si no existe ese acuerdo.
+
 ## Fallos de telemetría
 
 La caída del scraper o colector no debe tumbar la API. Si faltan métricas pero `ready` funciona, diagnostique token, conectividad privada y antigüedad del scrape; use logs JSON y probes como respaldo. Si los logs contienen un secreto, trate el destino como comprometido, restrinja acceso y rote el secreto siguiendo el runbook; no intente ocultarlo borrando evidencia sin preservar una copia forense autorizada.

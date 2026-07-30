@@ -31,7 +31,7 @@ jobs:
       - run: corepack enable
       - run: corepack prepare pnpm@${PNPM_VERSION} --activate
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec prisma generate
+      - run: npx prisma generate
       - run: pnpm test:coverage
       - run: pnpm typecheck:all
       - run: pnpm lint:all

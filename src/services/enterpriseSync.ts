@@ -46,7 +46,7 @@ async function markTerminal(ownerId: string, entry: EnterpriseOutboxEntry, messa
   if (operation.kind === 'task.transition') {
     const task = (await loadCachedTasks(ownerId)).find((item) => item.id === operation.taskId)
     if (task) await saveCachedTask(ownerId, { ...task, pendingTransition: undefined, syncError: message })
-  } else {
+  } else if (operation.kind === 'publication.acknowledge') {
     const publication = (await loadCachedPublications(ownerId)).find((item) => item.id === operation.publicationId)
     if (publication) {
       await saveCachedPublication(ownerId, {
@@ -75,8 +75,10 @@ async function executeEntry(ownerId: string, entry: EnterpriseOutboxEntry): Prom
     return
   }
 
-  const task = await transitionTask(operation.taskId, operation.transition)
-  await saveCachedTask(ownerId, { ...task, pendingTransition: undefined, syncError: undefined })
+  if (operation.kind === 'task.transition') {
+    const task = await transitionTask(operation.taskId, operation.transition)
+    await saveCachedTask(ownerId, { ...task, pendingTransition: undefined, syncError: undefined })
+  }
 }
 
 function transitionTarget(transition: Extract<EnterpriseOutboxEntry['operation'], { kind: 'task.transition' }>['transition']) {
